@@ -1,0 +1,11 @@
+{
+    "id": "obsimap",
+    "name": "ObsiMap",
+    "version": "1.0.0",
+    "minAppVersion": "1.4.14",
+    "description": "Create keyboard-centric mind maps with wiki-linked notes, drag-and-drop, and Markdown export.",
+    "author": "Creative781",
+    "authorUrl": "https://github.com/Creative781",
+    "fundingUrl": "https://www.buymeacoffee.com/creative781",
+    "isDesktopOnly": false
+}

@@ -1,0 +1,53 @@
+name: Bug report
+description: Report a problem with ObsiMap
+title: "[Bug]: "
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: Thanks for taking the time to report an issue.
+  - type: input
+    id: obsidian-version
+    attributes:
+      label: Obsidian version
+      placeholder: e.g. 1.7.2
+    validations:
+      required: true
+  - type: input
+    id: obsimap-version
+    attributes:
+      label: ObsiMap version
+      placeholder: e.g. 1.0.0
+    validations:
+      required: true
+  - type: dropdown
+    id: platform
+    attributes:
+      label: Platform
+      options:
+        - Windows
+        - macOS
+        - Linux
+        - iOS
+        - Android
+    validations:
+      required: true
+  - type: textarea
+    id: steps
+    attributes:
+      label: Steps to reproduce
+      placeholder: What did you do before the issue happened?
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: Expected behavior
+    validations:
+      required: true
+  - type: textarea
+    id: actual
+    attributes:
+      label: Actual behavior
+    validations:
+      required: true

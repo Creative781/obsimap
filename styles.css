@@ -1,0 +1,475 @@
+/* File Explorer: Show BADGE, Hide Icon */
+.nav-file-title[data-path$=".mindmap"] .nav-file-icon {
+    display: none !important;
+}
+
+.nav-file-title[data-path$=".mindmap"]::after {
+    display: block !important;
+    content: "MINDMAP" !important;
+    position: absolute !important;
+    right: 8px !important;
+    top: 50% !important;
+    transform: translateY(-50%) !important;
+    background-color: var(--background-secondary) !important;
+    color: var(--text-muted) !important;
+    font-size: 7px !important;
+    font-weight: 500 !important;
+    padding: 2px 5px !important;
+    border: 0.5px solid var(--divider-color) !important;
+    border-radius: 4px !important;
+    text-transform: uppercase !important;
+    letter-spacing: 0.3px !important;
+    pointer-events: none !important;
+    z-index: 100 !important;
+    line-height: 1.1 !important;
+}
+
+
+/* Bookmarks & Search Results: Show ICON, Hide Badge */
+.tree-item-self[data-path$=".mindmap"] .tree-item-icon {
+    display: flex !important;
+    align-items: center;
+    justify-content: center;
+}
+
+.tree-item-self[data-path$=".mindmap"]::after {
+    display: none !important;
+    content: none !important;
+}
+
+/* Custom Icon for Bookmarks */
+.tree-item-self[data-path$=".mindmap"] .tree-item-icon svg {
+    display: none !important;
+}
+
+.tree-item-self[data-path$=".mindmap"] .tree-item-icon::before {
+    content: "";
+    display: block;
+    width: 16px;
+    height: 16px;
+    background-color: var(--text-muted);
+    -webkit-mask-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='currentColor' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Ccircle cx='5' cy='6' r='3'/%3E%3Cpath d='M5 9v6'/%3E%3Ccircle cx='5' cy='18' r='3'/%3E%3Cpath d='M12 3v18'/%3E%3Ccircle cx='19' cy='6' r='3'/%3E%3Cpath d='M16 15.7A9 9 0 0 0 19 9'/%3E%3C/svg%3E");
+    mask-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='currentColor' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Ccircle cx='5' cy='6' r='3'/%3E%3Cpath d='M5 9v6'/%3E%3Ccircle cx='5' cy='18' r='3'/%3E%3Cpath d='M12 3v18'/%3E%3Ccircle cx='19' cy='6' r='3'/%3E%3Cpath d='M16 15.7A9 9 0 0 0 19 9'/%3E%3C/svg%3E");
+    -webkit-mask-repeat: no-repeat;
+    mask-repeat: no-repeat;
+    -webkit-mask-size: contain;
+    mask-size: contain;
+}
+
+
+/* Custom Tooltip Styling */
+.mindmap-tooltip {
+    position: fixed;
+    background-color: rgba(0, 0, 0, 0.6);
+    /* More transparent as requested */
+    color: white;
+    padding: 8px 12px;
+    border-radius: 6px;
+    font-size: 15px;
+    /* Increased font size */
+    z-index: 2000;
+    pointer-events: none;
+    max-width: 300px;
+    word-wrap: break-word;
+    box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+    backdrop-filter: blur(4px);
+    /* Premium blur effect */
+    opacity: 0.95;
+    line-height: 1.4;
+}
+
+
+.mind-map-view {
+    display: flex;
+    flex-direction: column;
+    height: 100%;
+    width: 100%;
+    overflow: hidden;
+    background-color: var(--background-primary);
+}
+
+/* Floating Controls - Premium Collapsible Design */
+.mindmap-controls-floating {
+    position: absolute;
+    top: 20px;
+    left: 20px;
+    display: flex;
+    align-items: center;
+    background-color: var(--background-secondary);
+    opacity: 0.95;
+    backdrop-filter: blur(12px);
+    border: 1px solid var(--divider-color);
+    border-radius: 14px;
+    padding: 6px;
+    gap: 0;
+    box-shadow: 0 8px 32px rgba(0, 0, 0, 0.4);
+    z-index: 100;
+    transition: all 0.4s cubic-bezier(0.4, 0, 0.2, 1);
+    overflow: hidden;
+    max-width: 500px;
+}
+
+.mindmap-controls-floating.is-collapsed {
+    max-width: 48px;
+    padding: 6px;
+    background-color: var(--background-secondary);
+    opacity: 0.8;
+}
+
+.toolbar-toggle-btn {
+    flex-shrink: 0;
+    z-index: 101;
+    color: var(--text-muted);
+}
+
+.mindmap-controls-floating.is-collapsed .toolbar-toggle-btn {
+    color: var(--interactive-accent);
+}
+
+.toolbar-buttons {
+    display: flex;
+    gap: 6px;
+    padding-left: 6px;
+    transition: opacity 0.3s ease, transform 0.3s ease;
+    opacity: 1;
+    transform: translateX(0);
+}
+
+.mindmap-controls-floating.is-collapsed .toolbar-buttons {
+    opacity: 0;
+    transform: translateX(-20px);
+    pointer-events: none;
+}
+
+.mindmap-control-btn {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 36px;
+    height: 36px;
+    border-radius: 8px;
+    background: transparent;
+    cursor: pointer;
+    color: var(--text-muted);
+    transition: all 0.2s ease;
+}
+
+.mindmap-control-btn:hover {
+    background-color: var(--background-modifier-hover);
+    color: var(--text-normal);
+    transform: translateY(-1px);
+}
+
+.mindmap-control-btn:active {
+    transform: translateY(0);
+}
+
+.mindmap-svg {
+    width: 100%;
+    height: 100%;
+    cursor: default;
+}
+
+/* Background */
+.mindmap-svg-container {
+    flex-grow: 1;
+    overflow: hidden;
+    position: relative;
+    outline: none;
+    background-color: var(--background-primary);
+}
+
+/* Base Node & Connection */
+.mindmap-connection {
+    fill: none;
+    stroke: var(--divider-color);
+    stroke-width: 2;
+}
+
+.mindmap-node-rect {
+    stroke-width: 2;
+    transition: all 0.2s ease;
+    touch-action: manipulation;
+}
+
+/* External Drag Over State */
+.mindmap-node-rect.drag-over {
+    stroke-width: 5;
+    stroke-dasharray: 5, 5;
+    filter: drop-shadow(0 0 10px var(--interactive-accent));
+}
+
+/* Internal Drag Target State */
+.mindmap-node-rect.drag-target {
+    fill: var(--interactive-accent);
+    opacity: 0.15;
+    /* Much more subtle highlight */
+    stroke: var(--interactive-accent);
+    stroke-width: 1;
+}
+
+.mindmap-node-rect.replace-target {
+    stroke: var(--interactive-accent);
+    stroke-width: 4;
+    stroke-dasharray: 4, 2;
+    filter: drop-shadow(0 0 8px var(--interactive-accent));
+}
+
+.drag-indicator-line {
+    stroke: var(--interactive-accent);
+    stroke-width: 3px;
+    /* Slightly thicker for visibility */
+    stroke-linecap: round;
+    opacity: 0;
+    transition: opacity 0.1s ease-in-out;
+    /* Faster transition */
+    pointer-events: none;
+    filter: drop-shadow(0 0 2px var(--background-primary));
+    /* Contrast against node */
+}
+
+.drag-indicator-line.is-visible {
+    opacity: 1 !important;
+    /* Force full visibility */
+    display: block !important;
+}
+
+.mindmap-ghost-node {
+    pointer-events: none;
+    filter: drop-shadow(0 5px 15px rgba(0, 0, 0, 0.3));
+}
+
+/* Node Collapse/Expand Toggle Styles */
+.mindmap-node-toggle {
+    fill: var(--background-primary);
+    stroke: var(--divider-color);
+    stroke-width: 1.5px;
+    transition: all 0.2s ease;
+}
+
+.mindmap-node-toggle:hover {
+    fill: var(--interactive-accent);
+    stroke: var(--interactive-accent);
+}
+
+.mindmap-node-toggle-symbol {
+    font-size: 14px;
+    font-weight: bold;
+    fill: var(--text-muted);
+    pointer-events: none;
+    user-select: none;
+    transition: all 0.2s ease;
+}
+
+.mindmap-node-toggle:hover+.mindmap-node-toggle-symbol {
+    fill: var(--text-on-accent);
+}
+
+.mindmap-node-text {
+    font-size: 14px;
+    font-weight: 600;
+    pointer-events: none;
+    user-select: none;
+}
+
+/* --- Theme: Default (Obsidian Native) --- */
+.theme-default .mindmap-node-rect {
+    fill: var(--background-primary);
+    stroke: var(--divider-color);
+}
+
+.theme-default .mindmap-node-text {
+    fill: var(--text-normal);
+}
+
+.theme-default .mindmap-node-rect.is-selected {
+    fill: var(--interactive-accent);
+    stroke: var(--interactive-accent);
+}
+
+.theme-default .is-selected+.mindmap-node-text {
+    fill: var(--text-on-accent);
+}
+
+/* Default theme — dark mode: nodes must contrast with canvas */
+.theme-dark .theme-default .mindmap-node-rect {
+    fill: var(--background-secondary);
+    stroke: var(--text-muted);
+    stroke-width: 2;
+}
+
+.theme-dark .theme-default .mindmap-node-text {
+    fill: var(--text-normal);
+}
+
+.theme-dark .theme-default .mindmap-node-rect:hover {
+    stroke: var(--text-normal);
+}
+
+.theme-dark .theme-default .mindmap-node-rect.is-selected {
+    fill: var(--interactive-accent);
+    stroke: var(--interactive-accent);
+}
+
+.theme-dark .theme-default .is-selected + .mindmap-node-text {
+    fill: var(--text-on-accent);
+}
+
+.theme-dark .theme-default .mindmap-connection {
+    stroke: var(--text-muted);
+    opacity: 0.55;
+}
+
+.theme-dark .theme-default .mindmap-node-toggle {
+    fill: var(--background-secondary);
+    stroke: var(--text-muted);
+}
+
+.theme-dark .theme-default .mindmap-node-toggle-symbol {
+    fill: var(--text-normal);
+}
+
+/* --- Theme: Vibrant (Rich Colors) --- */
+.theme-vibrant .mindmap-node-rect {
+    fill: #0ea5e9;
+    /* Sky Blue */
+    stroke: #0284c7;
+}
+
+.theme-vibrant .mindmap-node-text {
+    fill: #ffffff;
+}
+
+.theme-vibrant .mindmap-node-rect.is-selected {
+    fill: #f43f5e;
+    /* Rose */
+    stroke: #e11d48;
+    filter: drop-shadow(0 0 8px #f43f5e);
+}
+
+.theme-vibrant .mindmap-connection {
+    stroke: #0ea5e9;
+    opacity: 0.5;
+}
+
+.theme-dark .theme-vibrant .mindmap-node-rect {
+    fill: #6366f1;
+    /* Indigo */
+    stroke: #4f46e5;
+}
+
+.theme-dark .theme-vibrant .mindmap-node-rect.is-selected {
+    fill: #ec4899;
+    /* Pink */
+    stroke: #db2777;
+    filter: drop-shadow(0 0 8px #ec4899);
+}
+
+/* --- Theme: Contrast (Softer High Contrast) --- */
+.theme-contrast .mindmap-node-rect {
+    fill: #262626;
+    /* Darker grey instead of pure black */
+    stroke: #d4d4d4;
+    /* Off-white instead of pure white */
+    stroke-width: 2.5;
+}
+
+.theme-contrast .mindmap-node-text {
+    fill: #f5f5f5;
+}
+
+.theme-contrast .mindmap-node-rect.is-selected {
+    fill: #e5e5e5;
+    stroke: #171717;
+}
+
+.theme-contrast .is-selected+.mindmap-node-text {
+    fill: #171717;
+}
+
+.theme-contrast .mindmap-connection {
+    stroke: #d4d4d4;
+    stroke-width: 2.5;
+    opacity: 0.9;
+}
+
+.theme-dark .theme-contrast .mindmap-connection {
+    stroke: #e5e5e5;
+    stroke-width: 2.5;
+    opacity: 1;
+}
+
+.theme-light .theme-contrast .mindmap-connection {
+    stroke: #525252;
+    stroke-width: 2.5;
+    opacity: 0.85;
+}
+
+.theme-light .theme-contrast .mindmap-node-rect {
+    fill: #ffffff;
+    stroke: #404040;
+}
+
+.theme-light .theme-contrast .mindmap-node-text {
+    fill: #171717;
+}
+
+.theme-light .theme-contrast .mindmap-node-rect.is-selected {
+    fill: #404040;
+    stroke: #ffffff;
+}
+
+.theme-light .theme-contrast .is-selected+.mindmap-node-text {
+    fill: #ffffff;
+}
+
+/* Base Interactions */
+.mindmap-node-rect:hover {
+    stroke-width: 4;
+    cursor: pointer;
+}
+
+/* Edit Input Shell */
+.mindmap-edit-input {
+    position: absolute;
+    box-sizing: border-box;
+    padding: 8px 12px;
+    border-radius: 8px;
+    border: 2px solid var(--interactive-accent);
+    background-color: var(--background-primary);
+    color: var(--text-normal);
+    box-shadow: var(--shadow-l);
+    z-index: 20;
+    font-size: 16px;
+    outline: none;
+    -webkit-appearance: none;
+    appearance: none;
+}
+
+/* Support & Social Links */
+.obsimap-support-coffee img {
+    height: 40px !important;
+    width: 144px !important;
+    margin-bottom: 15px;
+    display: block;
+}
+
+.obsimap-social-links {
+    display: flex;
+    gap: 15px;
+    margin-top: 10px;
+}
+
+.obsimap-social-link {
+    color: var(--text-accent);
+    text-decoration: none;
+    font-weight: 600;
+}
+
+.obsimap-social-link:hover {
+    text-decoration: underline;
+}
+
+.view-header-title.is-renamable {
+    cursor: text !important;
+}

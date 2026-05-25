@@ -1,0 +1,5 @@
+blank_issues_enabled: false
+contact_links:
+  - name: ObsiMap documentation
+    url: https://github.com/Creative781/obsimap#readme
+    about: Read the README for install and usage

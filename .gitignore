@@ -1,0 +1,19 @@
+# Dependencies
+node_modules/
+
+# OS / editor
+.DS_Store
+.idea/
+.vscode/
+
+# Local plugin data (Obsidian writes this at runtime)
+data.json
+
+# Vault / test artifacts
+*.mindmap
+.venv
+.agent
+*.zip
+
+# Build cache (artifacts main.js / styles.css are committed for releases)
+*.log
