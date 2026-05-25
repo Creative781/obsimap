@@ -1,5 +1,5 @@
 name: Bug report
-description: Report a problem with ObsiMap
+description: Report a problem with Simple Mindmap
 title: "[Bug]: "
 labels: ["bug"]
 body:
@@ -16,8 +16,8 @@ body:
   - type: input
     id: obsimap-version
     attributes:
-      label: ObsiMap version
-      placeholder: e.g. 1.0.0
+      label: Simple Mindmap version
+      placeholder: e.g. 1.0.1
     validations:
       required: true
   - type: dropdown

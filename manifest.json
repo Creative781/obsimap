@@ -1,7 +1,7 @@
 {
     "id": "obsimap",
-    "name": "ObsiMap",
-    "version": "1.0.0",
+    "name": "Simple Mindmap",
+    "version": "1.0.1",
     "minAppVersion": "1.4.14",
     "description": "Create keyboard-centric mind maps with wiki-linked notes, drag-and-drop, and Markdown export.",
     "author": "Creative781",

@@ -475,7 +475,7 @@ var _MindMapView = class extends import_obsidian.TextFileView {
   getDisplayText() {
     if (this.file)
       return this.file.basename;
-    return "Obsimap";
+    return "Simple Mindmap";
   }
   getViewData() {
     const jsonData = JSON.stringify(this.mindMapData, null, 2);
@@ -1187,7 +1187,7 @@ ${jsonData}
   }
   async exportMarkdown() {
     const rootNode = this.mindMapData.root;
-    const baseFileName = (rootNode.text.replace(/[/\\?%*:|"<>]/g, "-").trim() || "Untitled ObsiMap") + " (Outline)";
+    const baseFileName = (rootNode.text.replace(/[/\\?%*:|"<>]/g, "-").trim() || "Untitled Simple Mindmap") + " (Outline)";
     const folder = this.settings.exportFolder;
     await this.ensureFolderExists(folder);
     let fileName = `${baseFileName}.md`;

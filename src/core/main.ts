@@ -551,7 +551,7 @@ class MindMapView extends TextFileView {
 
     getDisplayText(): string {
         if (this.file) return this.file.basename;
-        return "Obsimap";
+        return "Simple Mindmap";
     }
 
     getViewData(): string {
@@ -1311,7 +1311,7 @@ class MindMapView extends TextFileView {
     async exportMarkdown() {
         const rootNode = this.mindMapData.root;
         const baseFileName =
-            (rootNode.text.replace(/[/\\?%*:|"<>]/g, "-").trim() || "Untitled ObsiMap") + " (Outline)";
+            (rootNode.text.replace(/[/\\?%*:|"<>]/g, "-").trim() || "Untitled Simple Mindmap") + " (Outline)";
         const folder = this.settings.exportFolder;
         await this.ensureFolderExists(folder);
 

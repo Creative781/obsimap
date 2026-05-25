@@ -1,6 +1,6 @@
-# Contributing to ObsiMap
+# Contributing to Simple Mindmap
 
-Thank you for your interest in improving ObsiMap.
+Thank you for your interest in improving Simple Mindmap.
 
 ## Development setup
 
@@ -40,6 +40,6 @@ Install the built plugin in a test vault:
 Use [GitHub Issues](https://github.com/Creative781/obsimap/issues) with:
 
 - Obsidian version
-- ObsiMap version
+- Simple Mindmap version
 - Steps to reproduce
 - Expected vs actual behavior

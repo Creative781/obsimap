@@ -1,14 +1,14 @@
-# ObsiMap
+# Simple Mindmap
 
 Create keyboard-centric mind maps in Obsidian with wiki-linked notes, drag-and-drop editing, and Markdown export.
 
 ![Obsidian](https://img.shields.io/badge/Obsidian-1.4.14%2B-7c3aed)
 ![License](https://img.shields.io/badge/License-MIT-green)
-![Version](https://img.shields.io/badge/Version-1.0.0-blue)
+![Version](https://img.shields.io/badge/Version-1.0.1-blue)
 
 ## Overview
 
-ObsiMap adds a dedicated mind map view to your vault. Build hierarchies with the keyboard, link nodes to existing notes, reorganize with drag-and-drop, and export outlines or merged documents when you are ready to publish.
+Simple Mindmap adds a dedicated mind map view to your vault. Build hierarchies with the keyboard, link nodes to existing notes, reorganize with drag-and-drop, and export outlines or merged documents when you are ready to publish.
 
 ![demo](docs/images/obsimap.gif)
 
@@ -24,7 +24,7 @@ ObsiMap adds a dedicated mind map view to your vault. Build hierarchies with the
 
 ## Getting started
 
-1. Enable **ObsiMap** in **Settings → Community plugins**.
+1. Enable **Simple Mindmap** in **Settings → Community plugins**.
 2. Click the **network** ribbon icon or create/open a `.mindmap` file.
 3. Select the map canvas so keyboard shortcuts apply (click the background once).
 4. Use `Tab` / `Enter` to add nodes, arrow keys to move selection, and `Shift+Enter` to rename.
@@ -55,7 +55,7 @@ Pan with click-drag on the canvas; zoom with the mouse wheel.
 | Reorder / promote / demote | `Shift` + Arrow keys |
 | Undo | `Ctrl/Cmd+Z` |
 
-All shortcuts can be changed under **Settings → ObsiMap**.
+All shortcuts can be changed under **Settings → Simple Mindmap**.
 
 ## Commands
 
@@ -79,11 +79,11 @@ All shortcuts can be changed under **Settings → ObsiMap**.
 
 ### Community plugins (recommended)
 
-After ObsiMap is listed in the directory:
+After Simple Mindmap is listed in the directory:
 
 1. Open **Settings → Community plugins**.
 2. Turn off **Restricted mode** if needed.
-3. Search for **ObsiMap** and install.
+3. Search for **Simple Mindmap** and install.
 
 ### Manual install
 
@@ -120,7 +120,7 @@ See [CONTRIBUTING.md](CONTRIBUTING.md) for guidelines.
 
 ## Privacy
 
-ObsiMap reads and writes files only through Obsidian’s vault APIs. Mind map data stays in your vault (`.mindmap` files and exported Markdown). No analytics or third-party sync are included.
+Simple Mindmap reads and writes files only through Obsidian’s vault APIs. Mind map data stays in your vault (`.mindmap` files and exported Markdown). No analytics or third-party sync are included.
 
 ## Support
 
@@ -135,7 +135,7 @@ MIT — see [LICENSE](LICENSE).
 
 ---
 
-# ObsiMap (한국어)
+# Simple Mindmap (한국어)
 
 옵시디안에서 키보드 중심 마인드맵을 만들고, 위키 링크로 노트를 연결하며, Markdown으로보낼 수 있는 플러그인입니다.
 
@@ -150,7 +150,7 @@ MIT — see [LICENSE](LICENSE).
 
 ## 시작하기
 
-1. **설정 → 커뮤니티 플러그인**에서 ObsiMap 활성화
+1. **설정 → 커뮤니티 플러그인**에서 Simple Mindmap 활성화
 2. 리본의 **network** 아이콘 클릭 또는 `.mindmap` 파일 열기
 3. 캔버스를 한 번 클릭해 포커스를 맞춘 뒤 단축키 사용
 
@@ -172,7 +172,7 @@ MIT — see [LICENSE](LICENSE).
 
 ### 커뮤니티 플러그인
 
-승인 후 **설정 → 커뮤니티 플러그인**에서 **ObsiMap** 검색·설치.
+승인 후 **설정 → 커뮤니티 플러그인**에서 **Simple Mindmap** 검색·설치.
 
 ### 수동 설치
 

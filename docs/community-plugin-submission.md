@@ -1,6 +1,6 @@
 # Obsidian community plugin submission checklist
 
-Use this checklist when publishing **ObsiMap** to GitHub and submitting to the [Obsidian community directory](https://community.obsidian.md/).
+Use this checklist when publishing **Simple Mindmap** to GitHub and submitting to the [Obsidian community directory](https://community.obsidian.md/).
 
 ## Repository requirements
 
@@ -54,7 +54,7 @@ Entry for [obsidian-releases](https://github.com/obsidianmd/obsidian-releases) `
 ```json
 {
   "id": "obsimap",
-  "name": "ObsiMap",
+  "name": "Simple Mindmap",
   "author": "Creative781",
   "description": "Create keyboard-centric mind maps with wiki-linked notes, drag-and-drop, and Markdown export.",
   "repo": "Creative781/obsimap"
