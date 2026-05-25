@@ -10,7 +10,7 @@ Create keyboard-centric mind maps in Obsidian with wiki-linked notes, drag-and-d
 
 ObsiMap adds a dedicated mind map view to your vault. Build hierarchies with the keyboard, link nodes to existing notes, reorganize with drag-and-drop, and export outlines or merged documents when you are ready to publish.
 
-![demo](docs/images/obsimap.gif
+![demo](docs/images/obsimap.gif)
 
 ## Features
 
