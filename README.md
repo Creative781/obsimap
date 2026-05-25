@@ -127,7 +127,7 @@ ObsiMap reads and writes files only through Obsidian’s vault APIs. Mind map da
 - [Report an issue](https://github.com/Creative781/obsimap/issues)
 - [YouTube — Creative781](https://www.youtube.com/@creative781)
 - [Blog](https://creative781.cafe24.com/)
-<script type="text/javascript" src="https://cdnjs.buymeacoffee.com/1.0.0/button.prod.min.js" data-name="bmc-button" data-slug="creative781" data-color="#FFDD00" data-emoji=""  data-font="Cookie" data-text="Buy me a coffee" data-outline-color="#000000" data-font-color="#000000" data-coffee-color="#ffffff" ></script>
+- [Buy me a coffee](https://buymeacoffee.com/creative781)
 
 ## License
 
@@ -185,6 +185,9 @@ MIT — see [LICENSE](LICENSE).
 `https://github.com/Creative781/obsimap`
 
 <script type="text/javascript" src="https://cdnjs.buymeacoffee.com/1.0.0/button.prod.min.js" data-name="bmc-button" data-slug="creative781" data-color="#FFDD00" data-emoji=""  data-font="Cookie" data-text="Buy me a coffee" data-outline-color="#000000" data-font-color="#000000" data-coffee-color="#ffffff" ></script>
+
+## 서포트
+- [Buy me a coffee](https://buymeacoffee.com/creative781)
 
 ## 라이선스
 
