@@ -436,6 +436,8 @@ var _MindMapView = class extends import_obsidian.TextFileView {
     this.suppressHotkeysUntil = 0;
     this.editInputEl = null;
     this.editViewportResizeHandler = null;
+    this.viewportResizeObserver = null;
+    this.viewportResizeRaf = null;
     this.svgContainerEl = null;
     this.boundWindowKeyDown = null;
     this.plugin = plugin;
@@ -661,6 +663,23 @@ ${jsonData}
         setTimeout(() => this.focusContainer(), 50);
       }
     }));
+    this.viewportResizeObserver = new ResizeObserver(() => {
+      if (this.viewportResizeRaf !== null)
+        cancelAnimationFrame(this.viewportResizeRaf);
+      this.viewportResizeRaf = requestAnimationFrame(() => {
+        this.viewportResizeRaf = null;
+        if (this.selectedNodeId)
+          this.scrollSelectionIntoView();
+      });
+    });
+    this.viewportResizeObserver.observe(svgContainer);
+    this.register(() => {
+      var _a;
+      if (this.viewportResizeRaf !== null)
+        cancelAnimationFrame(this.viewportResizeRaf);
+      (_a = this.viewportResizeObserver) == null ? void 0 : _a.disconnect();
+      this.viewportResizeObserver = null;
+    });
     this.render();
   }
   createControlButton(container, iconId, tooltip, onClick) {
@@ -675,43 +694,80 @@ ${jsonData}
   }
   updateTransform() {
     this.g.setAttribute("transform", `translate(${this.panX}, ${this.panY}) scale(${this.zoom})`);
+    this.repositionActiveEditInput();
   }
-  /** Pan just enough so the node is visible (not centered). */
-  ensureNodeInView(nodeId) {
-    var _a, _b;
-    if (!this.svgContainerEl)
+  repositionActiveEditInput() {
+    if (!this.editInputEl || !this.selectedNodeId)
       return;
-    const node = this.findNodeById(this.mindMapData.root, nodeId);
-    if (!node)
+    const node = this.findNodeById(this.mindMapData.root, this.selectedNodeId);
+    if (node)
+      this.positionEditInput(this.editInputEl, node);
+  }
+  scrollSelectionIntoView() {
+    if (this.selectedNodeId)
+      this.ensureNodeInView(this.selectedNodeId);
+  }
+  /** Pan just enough so the node fits in the visible map pane (uses live DOM bounds). */
+  ensureNodeInView(nodeId) {
+    var _a, _b, _c;
+    if (!this.svgContainerEl || !this.g)
       return;
     const padding = 24;
-    const nodeWidth = this.getNodeWidth(node.text);
-    const extraRight = node.children.length > 0 ? 26 : 0;
-    const nodeHeight = _MindMapView.NODE_HEIGHT;
-    const viewport = this.svgContainerEl.getBoundingClientRect();
-    const left = this.panX + ((_a = node.x) != null ? _a : 0) * this.zoom;
-    const top = this.panY + ((_b = node.y) != null ? _b : 0) * this.zoom;
-    const right = left + (nodeWidth + extraRight) * this.zoom;
-    const bottom = top + nodeHeight * this.zoom;
+    const containerRect = this.svgContainerEl.getBoundingClientRect();
     const viewLeft = padding;
     const viewTop = padding;
-    const viewRight = viewport.width - padding;
-    const viewBottom = viewport.height - padding;
+    const viewRight = containerRect.width - padding;
+    const viewBottom = containerRect.height - padding;
+    const viewInnerW = viewRight - viewLeft;
+    const viewInnerH = viewBottom - viewTop;
+    let left;
+    let top;
+    let right;
+    let bottom;
+    const nodeEl = (_a = this.svg) == null ? void 0 : _a.querySelector(`[data-node-id="${nodeId}"]`);
+    if (nodeEl instanceof SVGGElement) {
+      const nodeRect = nodeEl.getBoundingClientRect();
+      left = nodeRect.left - containerRect.left;
+      top = nodeRect.top - containerRect.top;
+      right = nodeRect.right - containerRect.left;
+      bottom = nodeRect.bottom - containerRect.top;
+    } else {
+      const node = this.findNodeById(this.mindMapData.root, nodeId);
+      if (!node)
+        return;
+      const nodeWidth = this.getNodeWidth(node.text);
+      const extraRight = node.children.length > 0 ? 26 : 0;
+      left = this.panX + ((_b = node.x) != null ? _b : 0) * this.zoom;
+      top = this.panY + ((_c = node.y) != null ? _c : 0) * this.zoom;
+      right = left + (nodeWidth + extraRight) * this.zoom;
+      bottom = top + _MindMapView.NODE_HEIGHT * this.zoom;
+    }
     let dx = 0;
     let dy = 0;
-    if (left < viewLeft)
+    const nodeW = right - left;
+    const nodeH = bottom - top;
+    if (nodeW <= viewInnerW) {
+      if (left < viewLeft)
+        dx = viewLeft - left;
+      else if (right > viewRight)
+        dx = viewRight - right;
+    } else {
       dx = viewLeft - left;
-    else if (right > viewRight)
-      dx = viewRight - right;
-    if (top < viewTop)
+    }
+    if (nodeH <= viewInnerH) {
+      if (top < viewTop)
+        dy = viewTop - top;
+      else if (bottom > viewBottom)
+        dy = viewBottom - bottom;
+    } else {
       dy = viewTop - top;
-    else if (bottom > viewBottom)
-      dy = viewBottom - bottom;
+    }
     if (dx === 0 && dy === 0)
       return;
     this.panX += dx;
     this.panY += dy;
-    this.updateTransform();
+    this.g.setAttribute("transform", `translate(${this.panX}, ${this.panY}) scale(${this.zoom})`);
+    this.repositionActiveEditInput();
   }
   handleKeyDown(e) {
     var _a, _b;
@@ -1003,6 +1059,7 @@ ${jsonData}
         }
       }
       this.render();
+      this.scrollSelectionIntoView();
       void this.saveMindMap(true);
     }
   }
@@ -1029,6 +1086,7 @@ ${jsonData}
         insertOffset++;
       }
       this.render();
+      this.scrollSelectionIntoView();
       void this.saveMindMap(true);
     }
   }
@@ -1052,6 +1110,7 @@ ${jsonData}
           previousSibling.children.push(moved);
         }
         this.render();
+        this.scrollSelectionIntoView();
         void this.saveMindMap(true);
       }
     }
@@ -1241,6 +1300,7 @@ ${jsonData}
       this.selectedNodeIds.clear();
       this.selectedNodeIds.add(this.selectedNodeId);
       this.render();
+      this.scrollSelectionIntoView();
       if (isInitial) {
         this.editNode(newNode, "New child");
       } else {
@@ -1268,6 +1328,7 @@ ${jsonData}
       this.selectedNodeIds.clear();
       this.selectedNodeIds.add(this.selectedNodeId);
       this.render();
+      this.scrollSelectionIntoView();
       if (isInitial) {
         this.editNode(newNode, "New sibling");
       } else {
@@ -1575,6 +1636,7 @@ ${jsonData}
     this.selectedNodeIds.clear();
     this.selectedNodeIds.add(newNode.id);
     this.render();
+    this.scrollSelectionIntoView();
     void this.saveMindMap(true);
   }
   updateDragTarget(mapX, mapY) {
@@ -2131,11 +2193,12 @@ ${jsonData}
     input.setAttribute("spellcheck", "false");
     container.appendChild(input);
     this.editInputEl = input;
+    this.ensureNodeInView(node.id);
     this.positionEditInput(input, node);
     this.editViewportResizeHandler = () => {
-      if (this.editInputEl) {
+      this.ensureNodeInView(node.id);
+      if (this.editInputEl)
         this.positionEditInput(this.editInputEl, node);
-      }
     };
     (_a = window.visualViewport) == null ? void 0 : _a.addEventListener("resize", this.editViewportResizeHandler);
     const editOpenedAt = Date.now();

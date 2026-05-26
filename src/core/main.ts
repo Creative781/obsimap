@@ -500,6 +500,8 @@ class MindMapView extends TextFileView {
     private suppressHotkeysUntil = 0;
     private editInputEl: HTMLInputElement | null = null;
     private editViewportResizeHandler: (() => void) | null = null;
+    private viewportResizeObserver: ResizeObserver | null = null;
+    private viewportResizeRaf: number | null = null;
     private svgContainerEl: HTMLElement | null = null;
     private boundWindowKeyDown: ((e: KeyboardEvent) => void) | null = null;
     private static readonly LONG_PRESS_MS = 500;
@@ -748,6 +750,20 @@ class MindMapView extends TextFileView {
             }
         }));
 
+        this.viewportResizeObserver = new ResizeObserver(() => {
+            if (this.viewportResizeRaf !== null) cancelAnimationFrame(this.viewportResizeRaf);
+            this.viewportResizeRaf = requestAnimationFrame(() => {
+                this.viewportResizeRaf = null;
+                if (this.selectedNodeId) this.scrollSelectionIntoView();
+            });
+        });
+        this.viewportResizeObserver.observe(svgContainer);
+        this.register(() => {
+            if (this.viewportResizeRaf !== null) cancelAnimationFrame(this.viewportResizeRaf);
+            this.viewportResizeObserver?.disconnect();
+            this.viewportResizeObserver = null;
+        });
+
         this.render();
     }
 
@@ -764,44 +780,80 @@ class MindMapView extends TextFileView {
 
     updateTransform() {
         this.g.setAttribute("transform", `translate(${this.panX}, ${this.panY}) scale(${this.zoom})`);
+        this.repositionActiveEditInput();
     }
 
-    /** Pan just enough so the node is visible (not centered). */
+    private repositionActiveEditInput(): void {
+        if (!this.editInputEl || !this.selectedNodeId) return;
+        const node = this.findNodeById(this.mindMapData.root, this.selectedNodeId);
+        if (node) this.positionEditInput(this.editInputEl, node);
+    }
+
+    private scrollSelectionIntoView(): void {
+        if (this.selectedNodeId) this.ensureNodeInView(this.selectedNodeId);
+    }
+
+    /** Pan just enough so the node fits in the visible map pane (uses live DOM bounds). */
     private ensureNodeInView(nodeId: string): void {
-        if (!this.svgContainerEl) return;
-        const node = this.findNodeById(this.mindMapData.root, nodeId);
-        if (!node) return;
+        if (!this.svgContainerEl || !this.g) return;
 
         const padding = 24;
-        const nodeWidth = this.getNodeWidth(node.text);
-        const extraRight = node.children.length > 0 ? 26 : 0;
-        const nodeHeight = MindMapView.NODE_HEIGHT;
-
-        const viewport = this.svgContainerEl.getBoundingClientRect();
-        const left = this.panX + (node.x ?? 0) * this.zoom;
-        const top = this.panY + (node.y ?? 0) * this.zoom;
-        const right = left + (nodeWidth + extraRight) * this.zoom;
-        const bottom = top + nodeHeight * this.zoom;
-
+        const containerRect = this.svgContainerEl.getBoundingClientRect();
         const viewLeft = padding;
         const viewTop = padding;
-        const viewRight = viewport.width - padding;
-        const viewBottom = viewport.height - padding;
+        const viewRight = containerRect.width - padding;
+        const viewBottom = containerRect.height - padding;
+        const viewInnerW = viewRight - viewLeft;
+        const viewInnerH = viewBottom - viewTop;
+
+        let left: number;
+        let top: number;
+        let right: number;
+        let bottom: number;
+
+        const nodeEl = this.svg?.querySelector(`[data-node-id="${nodeId}"]`);
+        if (nodeEl instanceof SVGGElement) {
+            const nodeRect = nodeEl.getBoundingClientRect();
+            left = nodeRect.left - containerRect.left;
+            top = nodeRect.top - containerRect.top;
+            right = nodeRect.right - containerRect.left;
+            bottom = nodeRect.bottom - containerRect.top;
+        } else {
+            const node = this.findNodeById(this.mindMapData.root, nodeId);
+            if (!node) return;
+            const nodeWidth = this.getNodeWidth(node.text);
+            const extraRight = node.children.length > 0 ? 26 : 0;
+            left = this.panX + (node.x ?? 0) * this.zoom;
+            top = this.panY + (node.y ?? 0) * this.zoom;
+            right = left + (nodeWidth + extraRight) * this.zoom;
+            bottom = top + MindMapView.NODE_HEIGHT * this.zoom;
+        }
 
         let dx = 0;
         let dy = 0;
+        const nodeW = right - left;
+        const nodeH = bottom - top;
 
-        if (left < viewLeft) dx = viewLeft - left;
-        else if (right > viewRight) dx = viewRight - right;
+        if (nodeW <= viewInnerW) {
+            if (left < viewLeft) dx = viewLeft - left;
+            else if (right > viewRight) dx = viewRight - right;
+        } else {
+            dx = viewLeft - left;
+        }
 
-        if (top < viewTop) dy = viewTop - top;
-        else if (bottom > viewBottom) dy = viewBottom - bottom;
+        if (nodeH <= viewInnerH) {
+            if (top < viewTop) dy = viewTop - top;
+            else if (bottom > viewBottom) dy = viewBottom - bottom;
+        } else {
+            dy = viewTop - top;
+        }
 
         if (dx === 0 && dy === 0) return;
 
         this.panX += dx;
         this.panY += dy;
-        this.updateTransform();
+        this.g.setAttribute("transform", `translate(${this.panX}, ${this.panY}) scale(${this.zoom})`);
+        this.repositionActiveEditInput();
     }
 
     handleKeyDown(e: KeyboardEvent) {
@@ -1089,6 +1141,7 @@ class MindMapView extends TextFileView {
                 }
             }
             this.render();
+            this.scrollSelectionIntoView();
             void this.saveMindMap(true);
         }
     }
@@ -1118,6 +1171,7 @@ class MindMapView extends TextFileView {
                 insertOffset++;
             }
             this.render();
+            this.scrollSelectionIntoView();
             void this.saveMindMap(true);
         }
     }
@@ -1145,6 +1199,7 @@ class MindMapView extends TextFileView {
                     previousSibling.children.push(moved);
                 }
                 this.render();
+                this.scrollSelectionIntoView();
                 void this.saveMindMap(true);
             }
         }
@@ -1369,6 +1424,7 @@ class MindMapView extends TextFileView {
             this.selectedNodeIds.add(this.selectedNodeId);
 
             this.render();
+            this.scrollSelectionIntoView();
             if (isInitial) {
                 this.editNode(newNode, "New child");
             } else {
@@ -1397,6 +1453,7 @@ class MindMapView extends TextFileView {
             this.selectedNodeIds.add(this.selectedNodeId);
 
             this.render();
+            this.scrollSelectionIntoView();
             if (isInitial) {
                 this.editNode(newNode, "New sibling");
             } else {
@@ -1768,6 +1825,7 @@ class MindMapView extends TextFileView {
         this.selectedNodeIds.clear();
         this.selectedNodeIds.add(newNode.id);
         this.render();
+        this.scrollSelectionIntoView();
         void this.saveMindMap(true);
     }
 
@@ -2399,12 +2457,12 @@ class MindMapView extends TextFileView {
 
         container.appendChild(input);
         this.editInputEl = input;
+        this.ensureNodeInView(node.id);
         this.positionEditInput(input, node);
 
         this.editViewportResizeHandler = () => {
-            if (this.editInputEl) {
-                this.positionEditInput(this.editInputEl, node);
-            }
+            this.ensureNodeInView(node.id);
+            if (this.editInputEl) this.positionEditInput(this.editInputEl, node);
         };
         window.visualViewport?.addEventListener("resize", this.editViewportResizeHandler);
 
