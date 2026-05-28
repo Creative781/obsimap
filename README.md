@@ -3,6 +3,8 @@
 Simple but powerful — a fast mind map built for effective writing!  
 An Obsidian plugin for creating mind maps quickly and easily. A clean, no-frills mind-mapping tool optimized for writing.
 
+![demo](docs/images/obsimap.gif)
+
 ## Key features
 
 - **Mind map editing** — Create, rename, delete, collapse, and reorder nodes, with multi-select and undo — every essential covered.
@@ -67,6 +69,8 @@ MIT
 
 심플하지만 강력하다! 효과적인 글쓰기를 위한 빠른 마인드맵!  
 옵시디안에서 쉽고 빠르게 마인드맵을 만들 수 있는 플러그인입니다. 글쓰기에 최적화되어 군더더기를 제거한 깔끔한 마인드맵 도구입니다.
+
+![demo](docs/images/obsimap.gif)
 
 ## 주요 기능
 
