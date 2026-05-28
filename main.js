@@ -182,11 +182,6 @@ ${JSON.stringify(emptyData, null, 2)}
       const file = await this.app.vault.create(path, content);
       const leaf = workspace.getLeaf("tab");
       await leaf.openFile(file);
-      if (leaf.view instanceof MindMapView) {
-        setTimeout(() => {
-          leaf.view.renameFile();
-        }, 300);
-      }
     } catch (e) {
       new import_obsidian.Notice(`Error creating mind map: ${e.message}`);
     }
@@ -547,19 +542,7 @@ ${jsonData}
     this.svg.classList.add("mindmap-svg");
     svgContainer.appendChild(this.svg);
     setTimeout(() => {
-      var _a;
       svgContainer.focus();
-      const headerTitle = (_a = this.containerEl.closest(".workspace-leaf")) == null ? void 0 : _a.querySelector(".view-header-title");
-      if (headerTitle instanceof HTMLElement) {
-        this.registerDomEvent(headerTitle, "click", (e) => {
-          if (headerTitle.contentEditable !== "true") {
-            e.preventDefault();
-            e.stopPropagation();
-            this.renameFile();
-          }
-        });
-        headerTitle.classList.add("is-renamable");
-      }
     }, 100);
     this.g = document.createElementNS("http://www.w3.org/2000/svg", "g");
     this.svg.appendChild(this.g);
@@ -570,12 +553,16 @@ ${jsonData}
         return;
       if (this.isNodeTextEditActive())
         return;
-      if (e.target instanceof HTMLInputElement && e.target.classList.contains("mindmap-edit-input")) {
+      const targetEl = e.target instanceof HTMLElement ? e.target : null;
+      if (targetEl && targetEl.classList.contains("mindmap-edit-input"))
         return;
-      }
-      if (e.target instanceof HTMLElement && e.target.closest(".mindmap-control-btn"))
+      if (targetEl && targetEl.closest(".view-header"))
         return;
-      if (e.target instanceof HTMLElement && e.target.closest(".menu"))
+      if (targetEl && (targetEl.tagName === "INPUT" || targetEl.tagName === "TEXTAREA" || targetEl.isContentEditable))
+        return;
+      if (targetEl && targetEl.closest(".mindmap-control-btn"))
+        return;
+      if (targetEl && targetEl.closest(".menu"))
         return;
       if (e.key === " ") {
         svgContainer.setCssProps({ "cursor": "grab" });
@@ -2110,7 +2097,6 @@ ${jsonData}
     childPath.setAttribute("d", d);
     childPath.setAttribute("fill", "none");
     childPath.classList.add("drag-indicator-line", "indicator-child");
-    childPath.setCssProps({ "opacity": "0" });
     const aboveLine = document.createElementNS("http://www.w3.org/2000/svg", "line");
     const lineLen = 80;
     aboveLine.setAttribute("x1", (nodeWidth / 2 - lineLen / 2).toString());
@@ -2118,14 +2104,12 @@ ${jsonData}
     aboveLine.setAttribute("y1", (-_MindMapView.SIBLING_DROP_GAP / 2).toString());
     aboveLine.setAttribute("y2", (-_MindMapView.SIBLING_DROP_GAP / 2).toString());
     aboveLine.classList.add("drag-indicator-line", "indicator-above");
-    aboveLine.setCssProps({ "opacity": "0" });
     const belowLine = document.createElementNS("http://www.w3.org/2000/svg", "line");
     belowLine.setAttribute("x1", (nodeWidth / 2 - lineLen / 2).toString());
     belowLine.setAttribute("x2", (nodeWidth / 2 + lineLen / 2).toString());
     belowLine.setAttribute("y1", (_MindMapView.NODE_HEIGHT + _MindMapView.SIBLING_DROP_GAP / 2).toString());
     belowLine.setAttribute("y2", (_MindMapView.NODE_HEIGHT + _MindMapView.SIBLING_DROP_GAP / 2).toString());
     belowLine.classList.add("drag-indicator-line", "indicator-below");
-    belowLine.setCssProps({ "opacity": "0" });
     nodeG.appendChild(childPath);
     nodeG.appendChild(aboveLine);
     nodeG.appendChild(belowLine);
@@ -2338,75 +2322,18 @@ ${jsonData}
     }
   }
   renameFile() {
-    var _a;
     if (!this.file)
       return;
-    const headerTitle = (_a = this.containerEl.closest(".workspace-leaf")) == null ? void 0 : _a.querySelector(".view-header-title");
-    if (!(headerTitle instanceof HTMLElement)) {
-      new RenameModal(this.app, this.file.basename, (newName) => {
-        var _a2;
-        const file = this.file;
-        if (file && newName && newName !== file.basename) {
-          const folderPath = (_a2 = file.parent) == null ? void 0 : _a2.path;
-          const newPath = !folderPath || folderPath === "/" ? `${newName}.mindmap` : `${folderPath}/${newName}.mindmap`;
-          void this.app.vault.rename(file, newPath);
-        }
-      }).open();
-      return;
-    }
-    headerTitle.contentEditable = "true";
-    headerTitle.focus();
-    const selection = window.getSelection();
-    const range = document.createRange();
-    range.selectNodeContents(headerTitle);
-    selection == null ? void 0 : selection.removeAllRanges();
-    selection == null ? void 0 : selection.addRange(range);
-    let isRenaming = false;
-    const finishRename = async () => {
-      var _a2;
-      if (isRenaming)
-        return;
-      isRenaming = true;
-      headerTitle.contentEditable = "false";
-      const newName = headerTitle.innerText.trim();
+    new RenameModal(this.app, this.file.basename, (newName) => {
+      var _a;
       const file = this.file;
-      if (newName && file && newName !== file.basename) {
-        const folderPath = (_a2 = file.parent) == null ? void 0 : _a2.path;
+      if (file && newName && newName !== file.basename) {
+        const folderPath = (_a = file.parent) == null ? void 0 : _a.path;
         const newPath = !folderPath || folderPath === "/" ? `${newName}.mindmap` : `${folderPath}/${newName}.mindmap`;
-        try {
-          if (this.app.vault.getAbstractFileByPath(newPath)) {
-            new import_obsidian.Notice("A file with this name already exists.");
-            headerTitle.innerText = file.basename;
-            return;
-          }
-          await this.app.vault.rename(file, newPath);
-        } catch (e) {
-          new import_obsidian.Notice(`Rename failed: ${e.message}`);
-          if (this.file)
-            headerTitle.innerText = this.file.basename;
-        }
-      } else {
-        if (this.file)
-          headerTitle.innerText = this.file.basename;
+        void this.app.vault.rename(file, newPath);
       }
-    };
-    const onKeyDown = (e) => {
-      if (e.key === "Enter") {
-        e.preventDefault();
-        headerTitle.blur();
-      } else if (e.key === "Escape") {
-        e.preventDefault();
-        isRenaming = true;
-        headerTitle.contentEditable = "false";
-        if (this.file)
-          headerTitle.innerText = this.file.basename;
-        headerTitle.blur();
-      }
-    };
-    this.registerDomEvent(headerTitle, "keydown", onKeyDown);
-    this.registerDomEvent(headerTitle, "blur", () => {
-      void finishRename();
-    }, { once: true });
+      setTimeout(() => this.focusContainer(), 0);
+    }).open();
   }
   async openLinkedNote() {
     if (!this.selectedNodeId)

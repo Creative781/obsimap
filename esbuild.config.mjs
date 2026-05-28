@@ -1,6 +1,6 @@
 import esbuild from "esbuild";
+import { builtinModules } from "node:module";
 import process from "process";
-import builtins from "builtin-modules";
 
 const banner =
     `/*
@@ -9,24 +9,24 @@ if you want to view the source, please visit the github repository of this plugi
 */
 `;
 
-const prod = (process.argv[2] === 'production');
+const prod = (process.argv[2] === "production");
+
+const nodeBuiltins = builtinModules.filter((m) => !m.startsWith("node:"));
+const external = ["obsidian", "electron", ...nodeBuiltins];
 
 const context = await esbuild.context({
     banner: {
         js: banner,
     },
-    entryPoints: ['src/core/main.ts'],
+    entryPoints: ["src/core/main.ts"],
     bundle: true,
-    external: [
-        'obsidian',
-        'electron',
-        ...builtins],
-    format: 'cjs',
-    target: 'es2018',
-    logLevel: 'info',
-    sourcemap: prod ? false : 'inline',
+    external,
+    format: "cjs",
+    target: "es2018",
+    logLevel: "info",
+    sourcemap: prod ? false : "inline",
     treeShaking: true,
-    outfile: 'main.js',
+    outfile: "main.js",
 });
 
 if (prod) {

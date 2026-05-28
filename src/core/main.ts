@@ -163,13 +163,6 @@ export default class MindMapPlugin extends Plugin {
             const file = await this.app.vault.create(path, content);
             const leaf = workspace.getLeaf("tab");
             await leaf.openFile(file);
-
-            if (leaf.view instanceof MindMapView) {
-                // Auto-trigger rename to mimic "New Note" behavior
-                setTimeout(() => {
-                    (leaf.view as MindMapView).renameFile();
-                }, 300);
-            }
         } catch (e) {
             new Notice(`Error creating mind map: ${e.message}`);
         }
@@ -626,22 +619,10 @@ class MindMapView extends TextFileView {
         this.svg.classList.add("mindmap-svg");
         svgContainer.appendChild(this.svg);
 
-        // Auto-focus the container so keyboard navigation works immediately
+        // Auto-focus the container so keyboard navigation works immediately.
+        // No inline title rename — rename uses a modal to avoid stuck focus in the header.
         setTimeout(() => {
             svgContainer.focus();
-            // Fix for native-like title rename
-            const headerTitle = this.containerEl.closest(".workspace-leaf")?.querySelector(".view-header-title");
-            if (headerTitle instanceof HTMLElement) {
-                this.registerDomEvent(headerTitle, "click", (e) => {
-                    // Only trigger if not already editing
-                    if (headerTitle.contentEditable !== "true") {
-                        e.preventDefault();
-                        e.stopPropagation();
-                        this.renameFile();
-                    }
-                });
-                headerTitle.classList.add("is-renamable");
-            }
         }, 100);
 
         this.g = document.createElementNS("http://www.w3.org/2000/svg", "g");
@@ -651,11 +632,14 @@ class MindMapView extends TextFileView {
             if (this.app.workspace.getActiveViewOfType(MindMapView) !== this) return;
             if (Date.now() < this.suppressHotkeysUntil) return;
             if (this.isNodeTextEditActive()) return;
-            if (e.target instanceof HTMLInputElement && e.target.classList.contains("mindmap-edit-input")) {
-                return;
-            }
-            if (e.target instanceof HTMLElement && e.target.closest(".mindmap-control-btn")) return;
-            if (e.target instanceof HTMLElement && e.target.closest(".menu")) return;
+            const targetEl = e.target instanceof HTMLElement ? e.target : null;
+            if (targetEl && targetEl.classList.contains("mindmap-edit-input")) return;
+            // Never hijack keystrokes from the Obsidian view header (title, buttons, etc.)
+            if (targetEl && targetEl.closest(".view-header")) return;
+            // Don't hijack normal typing.
+            if (targetEl && (targetEl.tagName === "INPUT" || targetEl.tagName === "TEXTAREA" || targetEl.isContentEditable)) return;
+            if (targetEl && targetEl.closest(".mindmap-control-btn")) return;
+            if (targetEl && targetEl.closest(".menu")) return;
 
             if (e.key === " ") {
                 svgContainer.setCssProps({ "cursor": "grab" });
@@ -2365,7 +2349,6 @@ class MindMapView extends TextFileView {
         childPath.setAttribute("d", d);
         childPath.setAttribute("fill", "none");
         childPath.classList.add("drag-indicator-line", "indicator-child");
-        childPath.setCssProps({ "opacity": "0" });
 
         // Above indicator
         const aboveLine = document.createElementNS("http://www.w3.org/2000/svg", "line");
@@ -2375,7 +2358,6 @@ class MindMapView extends TextFileView {
         aboveLine.setAttribute("y1", (-MindMapView.SIBLING_DROP_GAP / 2).toString());
         aboveLine.setAttribute("y2", (-MindMapView.SIBLING_DROP_GAP / 2).toString());
         aboveLine.classList.add("drag-indicator-line", "indicator-above");
-        aboveLine.setCssProps({ "opacity": "0" });
 
         // Below indicator
         const belowLine = document.createElementNS("http://www.w3.org/2000/svg", "line");
@@ -2384,7 +2366,6 @@ class MindMapView extends TextFileView {
         belowLine.setAttribute("y1", (MindMapView.NODE_HEIGHT + MindMapView.SIBLING_DROP_GAP / 2).toString());
         belowLine.setAttribute("y2", (MindMapView.NODE_HEIGHT + MindMapView.SIBLING_DROP_GAP / 2).toString());
         belowLine.classList.add("drag-indicator-line", "indicator-below");
-        belowLine.setCssProps({ "opacity": "0" });
 
         // --- Drag Indicators (Appended after to be on top) ---
         nodeG.appendChild(childPath);
@@ -2614,82 +2595,19 @@ class MindMapView extends TextFileView {
             new Notice(`Error creating note: ${e.message}`);
         }
     }
-
     renameFile() {
         if (!this.file) return;
-
-        const headerTitle = this.containerEl.closest(".workspace-leaf")?.querySelector(".view-header-title");
-        if (!(headerTitle instanceof HTMLElement)) {
-            new RenameModal(this.app, this.file.basename, (newName) => {
-                const file = this.file;
-                if (file && newName && newName !== file.basename) {
-                    const folderPath = file.parent?.path;
-                    const newPath = (!folderPath || folderPath === "/") ? `${newName}.mindmap` : `${folderPath}/${newName}.mindmap`;
-                    void this.app.vault.rename(file, newPath);
-                }
-            }).open();
-            return;
-        }
-
-        // Simulate native in-place editing
-        headerTitle.contentEditable = "true";
-        headerTitle.focus();
-
-        const selection = window.getSelection();
-        const range = document.createRange();
-        range.selectNodeContents(headerTitle);
-        selection?.removeAllRanges();
-        selection?.addRange(range);
-
-        let isRenaming = false;
-        const finishRename = async () => {
-            if (isRenaming) return;
-            isRenaming = true;
-
-            headerTitle.contentEditable = "false";
-            const newName = headerTitle.innerText.trim();
+        new RenameModal(this.app, this.file.basename, (newName) => {
             const file = this.file;
-            if (newName && file && newName !== file.basename) {
+            if (file && newName && newName !== file.basename) {
                 const folderPath = file.parent?.path;
                 const newPath = (!folderPath || folderPath === "/")
                     ? `${newName}.mindmap`
                     : `${folderPath}/${newName}.mindmap`;
-
-                try {
-                    // Check if destination exists before renaming to provide better error or avoid conflict
-                    if (this.app.vault.getAbstractFileByPath(newPath)) {
-                        new Notice("A file with this name already exists.");
-                        headerTitle.innerText = file.basename;
-                        return;
-                    }
-                    await this.app.vault.rename(file, newPath);
-                } catch (e) {
-                    new Notice(`Rename failed: ${e.message}`);
-                    if (this.file) headerTitle.innerText = this.file.basename;
-                }
-            } else {
-                if (this.file) headerTitle.innerText = this.file.basename;
+                void this.app.vault.rename(file, newPath);
             }
-        };
-
-        const onKeyDown = (e: KeyboardEvent) => {
-            if (e.key === "Enter") {
-                e.preventDefault();
-                headerTitle.blur(); // This will trigger finishRename via the blur listener
-            } else if (e.key === "Escape") {
-                e.preventDefault();
-                isRenaming = true; // Use guard to skip finishRename on blur
-                headerTitle.contentEditable = "false";
-                if (this.file) headerTitle.innerText = this.file.basename;
-                headerTitle.blur();
-            }
-        };
-
-        this.registerDomEvent(headerTitle, "keydown", onKeyDown);
-
-        this.registerDomEvent(headerTitle, "blur", () => {
-            void finishRename();
-        }, { once: true });
+            setTimeout(() => this.focusContainer(), 0);
+        }).open();
     }
 
     async openLinkedNote() {
