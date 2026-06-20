@@ -546,6 +546,11 @@ ${jsonData}
     }, 100);
     this.g = document.createElementNS("http://www.w3.org/2000/svg", "g");
     this.svg.appendChild(this.g);
+    this.textMeasureEl = document.createElementNS("http://www.w3.org/2000/svg", "text");
+    this.textMeasureEl.classList.add("mindmap-node-text");
+    this.textMeasureEl.setAttribute("visibility", "hidden");
+    this.textMeasureEl.setAttribute("aria-hidden", "true");
+    this.svg.appendChild(this.textMeasureEl);
     this.boundWindowKeyDown = (e) => {
       if (this.app.workspace.getActiveViewOfType(_MindMapView) !== this)
         return;
@@ -1873,10 +1878,12 @@ ${jsonData}
   }
   getNodeWidth(text) {
     const maxLength = this.settings.maxNodeLength;
-    const baseWidth = 40;
-    const charWidth = 10;
-    const displayLength = text.length > maxLength ? maxLength + 3 : text.length;
-    return Math.max(120, baseWidth + displayLength * charWidth);
+    const padding = 40;
+    const displayText = text.length > maxLength
+      ? text.substring(0, maxLength) + "..."
+      : text;
+    this.textMeasureEl.textContent = displayText;
+    return Math.max(120, Math.ceil(this.textMeasureEl.getComputedTextLength()) + padding);
   }
   renderNode(node) {
     const nodeG = document.createElementNS("http://www.w3.org/2000/svg", "g");
