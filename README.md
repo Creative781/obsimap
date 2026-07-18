@@ -66,7 +66,7 @@ MIT
 
 ## Update history
 
-Your support helps ship updates faster.
+Your support helps updates faster.
 
 - ☑ **Radial mind map** (2026-07-18) — Choose outline or radial layout in settings; place topics on both the left and right of the center node.
 
