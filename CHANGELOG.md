@@ -5,6 +5,12 @@ All notable changes to this project are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.1.0] - 2026-07-18
+
+### Added
+
+- **Radial mind map layout** — Choose outline (rightward list) or radial (balanced left/right) in settings. New root topics auto-balance to the less crowded side; arrow keys follow on-screen direction on left branches.
+
 ## [1.0.3] - 2026-05-28
 
 ### Fixed

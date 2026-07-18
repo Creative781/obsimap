@@ -1,6 +1,8 @@
 
 export const VIEW_TYPE_MIND_MAP = "obsimap-view";
 
+export type MindMapLayoutMode = "outline" | "radial";
+
 export interface MindMapSettings {
     exportFolder: string;
     theme: string;
@@ -22,6 +24,8 @@ export interface MindMapSettings {
     showHoverPreview: boolean;
     maxNodeLength: number;
     nodeStyle: "pill" | "rect";
+    /** Outline = rightward list tree; radial = classic left/right mind map. */
+    layoutMode: MindMapLayoutMode;
 }
 
 export const DEFAULT_SETTINGS: MindMapSettings = {
@@ -45,6 +49,7 @@ export const DEFAULT_SETTINGS: MindMapSettings = {
     showHoverPreview: true,
     maxNodeLength: 20,
     nodeStyle: "pill",
+    layoutMode: "outline",
 };
 
 export interface MindMapNode {
@@ -55,4 +60,6 @@ export interface MindMapNode {
     x?: number;
     y?: number;
     collapsed?: boolean;
+    /** Side of the root for radial layout; only used for direct children of root. */
+    side?: "left" | "right";
 }

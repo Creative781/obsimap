@@ -8,6 +8,7 @@ An Obsidian plugin for creating mind maps quickly and easily. A clean, no-frills
 ## Key features
 
 - **Mind map editing** — Create, rename, delete, collapse, and reorder nodes, with multi-select and undo — every essential covered.
+- **Layout modes** — Outline (rightward list) or radial (balanced left/right of the center topic).
 - **Every action on a hotkey** — Assign customizable shortcuts to every feature in settings for fast keyboard-driven work.
 - **Note integration** — Search your vault to link existing notes to a node, or create a new Obsidian note from a node.
 - **Mouse-friendly** — Drag-and-drop to move nodes, freely adjust the map's size and position, and reach every feature from the right-click menu.
@@ -63,6 +64,16 @@ MIT
 
 - **Buy me a coffee**: [Support the developer](https://www.buymeacoffee.com/creative781)
 
+## Update history
+
+Your support helps ship updates faster.
+
+- ☑ **Radial mind map** (2026-07-18) — Choose outline or radial layout in settings; place topics on both the left and right of the center node.
+
+### Coming next
+
+- **Node highlight** — Emphasize selected nodes with a different color or shape
+
 ---
 
 # Simple Mindmap (한국어)
@@ -75,13 +86,15 @@ MIT
 ## 주요 기능
 
 - **마인드맵 편집** — 노드 생성·이름 변경·삭제·접기·순서 변경, 다중 선택, 실행 취소 등 마인드맵 필수 기능 제공
+- **레이아웃** — 목록형(오른쪽) 또는 방사형(중심 기준 좌우 균형)
 - **모든 기능 단축키 제공** — 모든 기능을 설정에서 단축키에 배당해 빠르게 작업
-- **노트 연동** —보관함에 있는 노트를 검색 마인드 맵ㅂ에 연결하거나, 마인드맵의 노드를 옵시디안 노트로 생성
+- **노트 연동** — 보관함에 있는 노트를 검색해 마인드맵에 연결하거나, 마인드맵의 노드를 옵시디안 노트로 생성
 - **마우스 활용** — 드래그앤 드롭으로 노드를 옮기고, 마인드 맵의 크기와 위치를 손쉽게 조정. 마우스 우클릭만으로 모든 기능 사용 가능
 - **Markdown** — 기존 노트 목록 가져와 마인드맵으로 바꾸거나, 마인드맵을 아웃라이너로 내보내기, 연결 노트 통합(Full note)
 - **Full note 생성** — 마인드 맵의 개요와 연결된 노트로 하나의 완성된 글 생성
-- **태블릿 지원** — 키보드 없는 태블릿에서도 동작(손가락 롱프레스)기본 단축키
+- **태블릿 지원** — 키보드 없는 태블릿에서도 동작(손가락 롱프레스)
 
+## 기본 단축키
 
 | 기능           | 단축키                         |
 | ------------ | --------------------------- |
@@ -108,7 +121,7 @@ MIT
 2. 보관함 `.obsidian/plugins/obsimap` 폴더 생성 후 파일 복사
 3. 설정에서 플러그인 활성화
 
-### BRAT (베타)
+### 베타 (BRAT)
 
 1. [BRAT](https://github.com/TfTHacker/obsidian42-brat) 설치
 2. Plugins → BRAT → Add Beta plugin
@@ -127,3 +140,12 @@ MIT
 
 - **바이미커피**: [개발자 후원하기](https://www.buymeacoffee.com/creative781)
 
+## 업데이트 히스토리
+
+여러분의 후원이 업데이트를 더 빠르게 하는 데 도움이 됩니다.
+
+- ☑ **방사형 마인드맵** (2026-07-18) — 설정에서 목록형·방사형을 고를 수 있고, 중심 주제 기준으로 왼쪽·오른쪽에 노드를 배치합니다.
+
+### 다음 업데이트 예고
+
+- **노드 강조** — 특정 노드만 색이나 모양을 바꿔 눈에 띄게 표시할 수 있는 기능

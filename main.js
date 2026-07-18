@@ -51,14 +51,42 @@ var DEFAULT_SETTINGS = {
   stripMetadata: true,
   showHoverPreview: true,
   maxNodeLength: 20,
-  nodeStyle: "pill"
+  nodeStyle: "pill",
+  layoutMode: "outline"
 };
 
 // src/core/main.ts
+function collectVaultFolders(root) {
+  const folders = [];
+  const walk = (folder) => {
+    folders.push(folder);
+    for (const child of folder.children) {
+      if (child instanceof import_obsidian.TFolder)
+        walk(child);
+    }
+  };
+  walk(root);
+  return folders;
+}
+function collectMarkdownFilesInFolder(folder) {
+  const files = [];
+  const walk = (dir) => {
+    for (const child of dir.children) {
+      if (child instanceof import_obsidian.TFile && child.extension === "md")
+        files.push(child);
+      else if (child instanceof import_obsidian.TFolder)
+        walk(child);
+    }
+  };
+  walk(folder);
+  return files;
+}
 var MindMapPlugin = class extends import_obsidian.Plugin {
   constructor() {
     super(...arguments);
     this.isInternalRenaming = false;
+    /** Paths of .mindmap files, kept in sync via vault events and layout-ready scan. */
+    this.mindmapPaths = /* @__PURE__ */ new Set();
   }
   async onload() {
     await this.loadSettings();
@@ -105,12 +133,62 @@ var MindMapPlugin = class extends import_obsidian.Plugin {
         }
       })
     );
+    this.registerEvent(
+      this.app.vault.on("create", (file) => {
+        if (file instanceof import_obsidian.TFile && file.extension === "mindmap") {
+          this.mindmapPaths.add(file.path);
+        }
+      })
+    );
+    this.registerEvent(
+      this.app.vault.on("delete", (file) => {
+        if (file instanceof import_obsidian.TFile && file.extension === "mindmap") {
+          this.mindmapPaths.delete(file.path);
+        }
+      })
+    );
+    this.registerEvent(
+      this.app.vault.on("rename", (file, oldPath) => {
+        if (file instanceof import_obsidian.TFile && file.extension === "mindmap") {
+          this.mindmapPaths.delete(oldPath);
+          this.mindmapPaths.add(file.path);
+        }
+      })
+    );
+    this.app.workspace.onLayoutReady(() => {
+      void this.refreshMindmapPaths();
+    });
+  }
+  /** Discover .mindmap paths via adapter listing (no vault.getFiles). */
+  async refreshMindmapPaths() {
+    const found = /* @__PURE__ */ new Set();
+    await this.listMindmapPathsInDir(this.app.vault.getRoot().path, found);
+    this.mindmapPaths = found;
+  }
+  async listMindmapPathsInDir(dir, found) {
+    let entries;
+    try {
+      entries = await this.app.vault.adapter.list(dir);
+    } catch (e) {
+      return;
+    }
+    for (const entry of entries) {
+      const fullPath = dir ? `${dir}/${entry}` : entry;
+      if (entry.endsWith(".mindmap")) {
+        found.add(fullPath);
+      } else if (!entry.includes(".")) {
+        await this.listMindmapPathsInDir(fullPath, found);
+      }
+    }
   }
   async loadSettings() {
     const data = await this.loadData();
     this.settings = Object.assign({}, DEFAULT_SETTINGS, data);
     if (data && data.hotkeys) {
       this.settings.hotkeys = Object.assign({}, DEFAULT_SETTINGS.hotkeys, data.hotkeys);
+    }
+    if (this.settings.layoutMode !== "radial" && this.settings.layoutMode !== "outline") {
+      this.settings.layoutMode = "outline";
     }
   }
   async saveSettings() {
@@ -122,8 +200,10 @@ var MindMapPlugin = class extends import_obsidian.Plugin {
     const oldName = oldFileObj.basename;
     if (oldName === newName)
       return;
-    const mindmapFiles = this.app.vault.getFiles().filter((f) => f.extension === "mindmap");
-    for (const mmFile of mindmapFiles) {
+    for (const path of this.mindmapPaths) {
+      const mmFile = this.app.vault.getAbstractFileByPath(path);
+      if (!(mmFile instanceof import_obsidian.TFile))
+        continue;
       let content = await this.app.vault.read(mmFile);
       const oldLinkRegex = new RegExp(`\\[\\[${this.escapeRegExp(oldName)}(\\|[^\\]]+)?\\]\\]`, "g");
       if (content.match(oldLinkRegex)) {
@@ -231,6 +311,21 @@ var MindMapSettingTab = class extends import_obsidian.PluginSettingTab {
         if (view instanceof MindMapView)
           view.updateTheme(this.plugin.settings.theme);
       })
+    );
+    new import_obsidian.Setting(containerEl).setName("Mind map layout").setDesc(
+      "Outline grows to the right like a list. Radial places root topics on both left and right (auto-balanced)."
+    ).addDropdown(
+      (dropdown) => {
+        var _a;
+        return dropdown.addOption("outline", "Outline (list)").addOption("radial", "Radial (balanced)").setValue((_a = this.plugin.settings.layoutMode) != null ? _a : "outline").onChange((value) => {
+          this.plugin.settings.layoutMode = value === "radial" ? "radial" : "outline";
+          void this.plugin.saveSettings();
+          this.app.workspace.getLeavesOfType(VIEW_TYPE_MIND_MAP).forEach((leaf) => {
+            if (leaf.view instanceof MindMapView)
+              leaf.view.render();
+          });
+        });
+      }
     );
     new import_obsidian.Setting(containerEl).setName("Strip metadata from full note").setDesc("Automatically remove YAML frontmatter/properties when exporting content.").addToggle(
       (toggle) => toggle.setValue(this.plugin.settings.stripMetadata).onChange((value) => {
@@ -366,7 +461,7 @@ var FolderSuggestModal = class extends import_obsidian.FuzzySuggestModal {
   constructor(app, onSelect) {
     super(app);
     this.onSelect = onSelect;
-    this.folders = this.app.vault.getAllLoadedFiles().filter((f) => f instanceof import_obsidian.TFolder);
+    this.folders = collectVaultFolders(this.app.vault.getRoot());
   }
   getItems() {
     return this.folders;
@@ -435,6 +530,9 @@ var _MindMapView = class extends import_obsidian.TextFileView {
     this.viewportResizeRaf = null;
     this.svgContainerEl = null;
     this.boundWindowKeyDown = null;
+    this.headerGuardKeyDown = null;
+    /** When dropping onto root as child in radial mode, prefer this side. */
+    this.pendingRootDropSide = null;
     this.plugin = plugin;
     this.settings = plugin.settings;
     this.metadataCache = plugin.app.metadataCache;
@@ -447,6 +545,9 @@ var _MindMapView = class extends import_obsidian.TextFileView {
     };
     this.selectedNodeId = "root";
     this.selectedNodeIds.add("root");
+  }
+  isHeaderTitleEditing() {
+    return false;
   }
   focusContainer() {
     const container = this.containerEl.querySelector(".mindmap-svg-container");
@@ -472,7 +573,7 @@ var _MindMapView = class extends import_obsidian.TextFileView {
   getDisplayText() {
     if (this.file)
       return this.file.basename;
-    return "Simple Mindmap";
+    return "Obsimap";
   }
   getViewData() {
     const jsonData = JSON.stringify(this.mindMapData, null, 2);
@@ -546,6 +647,11 @@ ${jsonData}
     }, 100);
     this.g = document.createElementNS("http://www.w3.org/2000/svg", "g");
     this.svg.appendChild(this.g);
+    this.registerDomEvent(svgContainer, "pointerdown", (e) => {
+      if (e.button !== 0 && e.button !== 1)
+        return;
+      svgContainer.focus({ preventScroll: true });
+    });
     this.boundWindowKeyDown = (e) => {
       if (this.app.workspace.getActiveViewOfType(_MindMapView) !== this)
         return;
@@ -553,9 +659,9 @@ ${jsonData}
         return;
       if (this.isNodeTextEditActive())
         return;
-      const targetEl = e.target instanceof HTMLElement ? e.target : null;
-      if (targetEl && targetEl.classList.contains("mindmap-edit-input"))
+      if (this.isHeaderTitleEditing())
         return;
+      const targetEl = e.target instanceof HTMLElement ? e.target : null;
       if (targetEl && targetEl.closest(".view-header"))
         return;
       if (targetEl && (targetEl.tagName === "INPUT" || targetEl.tagName === "TEXTAREA" || targetEl.isContentEditable))
@@ -830,14 +936,17 @@ ${jsonData}
     }
     if (key === "ArrowUp" || key === "ArrowDown" || key === "ArrowLeft" || key === "ArrowRight") {
       e.preventDefault();
-      if (key === "ArrowUp")
+      if (this.isRadialLayout()) {
+        this.navigateRadial(key, isMultiSelect);
+      } else if (key === "ArrowUp") {
         this.navigateSibling(-1, isMultiSelect);
-      else if (key === "ArrowDown")
+      } else if (key === "ArrowDown") {
         this.navigateSibling(1, isMultiSelect);
-      else if (key === "ArrowLeft")
+      } else if (key === "ArrowLeft") {
         this.navigateParent(isMultiSelect);
-      else if (key === "ArrowRight")
+      } else if (key === "ArrowRight") {
         this.navigateChild(isMultiSelect);
+      }
       return;
     }
     if (matches(hotkeys.addChild)) {
@@ -948,11 +1057,69 @@ ${jsonData}
       return ((_c = a.x) != null ? _c : 0) - ((_d = b.x) != null ? _d : 0);
     });
   }
+  /**
+   * Radial layout: arrows follow on-screen direction.
+   * Left branch grows leftward, so ← goes to child and → goes to parent.
+   */
+  navigateRadial(key, isMultiSelect = false) {
+    var _a;
+    if (key === "ArrowUp") {
+      this.navigateSibling(-1, isMultiSelect);
+      return;
+    }
+    if (key === "ArrowDown") {
+      this.navigateSibling(1, isMultiSelect);
+      return;
+    }
+    if (this.selectedNodeId === "root") {
+      if (key === "ArrowLeft")
+        this.navigateRootSideChild("left", isMultiSelect);
+      else if (key === "ArrowRight")
+        this.navigateRootSideChild("right", isMultiSelect);
+      return;
+    }
+    const onLeft = this.getBranchSide(
+      (_a = this.findNodeById(this.mindMapData.root, this.selectedNodeId)) != null ? _a : this.mindMapData.root
+    ) === "left";
+    if (key === "ArrowLeft") {
+      if (onLeft)
+        this.navigateChild(isMultiSelect);
+      else
+        this.navigateParent(isMultiSelect);
+    } else if (key === "ArrowRight") {
+      if (onLeft)
+        this.navigateParent(isMultiSelect);
+      else
+        this.navigateChild(isMultiSelect);
+    }
+  }
+  /** From root, move onto the first visible topic on that side (top-most). */
+  navigateRootSideChild(side, isMultiSelect = false) {
+    this.layoutMindMap();
+    const children = this.mindMapData.root.children.filter((c) => side === "left" ? c.side === "left" : c.side !== "left").slice().sort((a, b) => {
+      var _a, _b, _c, _d;
+      return ((_a = a.y) != null ? _a : 0) - ((_b = b.y) != null ? _b : 0) || ((_c = a.x) != null ? _c : 0) - ((_d = b.x) != null ? _d : 0);
+    });
+    if (children.length === 0)
+      return;
+    this.selectedNodeId = children[0].id;
+    if (!isMultiSelect) {
+      this.selectedNodeIds.clear();
+    }
+    this.selectedNodeIds.add(this.selectedNodeId);
+    this.render();
+    this.ensureNodeInView(this.selectedNodeId);
+  }
   navigateSibling(direction, isMultiSelect = false) {
+    var _a;
     if (!this.selectedNodeId)
       return;
+    this.layoutMindMap();
     if (this.selectedNodeId === "root") {
-      const children = this.mindMapData.root.children;
+      const children = this.mindMapData.root.children.slice().sort((a, b) => {
+        var _a2, _b, _c, _d;
+        return ((_a2 = a.y) != null ? _a2 : 0) - ((_b = b.y) != null ? _b : 0) || ((_c = a.x) != null ? _c : 0) - ((_d = b.x) != null ? _d : 0);
+      });
       if (children.length === 0)
         return;
       const target = direction > 0 ? children[0] : children[children.length - 1];
@@ -965,7 +1132,36 @@ ${jsonData}
       this.ensureNodeInView(this.selectedNodeId);
       return;
     }
-    this.calculateLayout(this.mindMapData.root, 100, 300);
+    const parent = this.findParentNode(this.mindMapData.root, this.selectedNodeId);
+    if (parent) {
+      let siblings = parent.children.slice();
+      if (parent.id === "root" && this.isRadialLayout()) {
+        const side = this.getBranchSide(
+          (_a = this.findNodeById(this.mindMapData.root, this.selectedNodeId)) != null ? _a : this.mindMapData.root
+        );
+        siblings = siblings.filter(
+          (c) => side === "left" ? c.side === "left" : c.side !== "left"
+        );
+      }
+      siblings.sort((a, b) => {
+        var _a2, _b, _c, _d;
+        return ((_a2 = a.y) != null ? _a2 : 0) - ((_b = b.y) != null ? _b : 0) || ((_c = a.x) != null ? _c : 0) - ((_d = b.x) != null ? _d : 0);
+      });
+      const index2 = siblings.findIndex((n) => n.id === this.selectedNodeId);
+      if (index2 >= 0) {
+        const nextIndex2 = index2 + direction;
+        if (nextIndex2 >= 0 && nextIndex2 < siblings.length) {
+          this.selectedNodeId = siblings[nextIndex2].id;
+          if (!isMultiSelect) {
+            this.selectedNodeIds.clear();
+          }
+          this.selectedNodeIds.add(this.selectedNodeId);
+          this.render();
+          this.ensureNodeInView(this.selectedNodeId);
+          return;
+        }
+      }
+    }
     const depth = this.getNodeDepth(this.selectedNodeId);
     if (depth < 0)
       return;
@@ -1002,8 +1198,13 @@ ${jsonData}
     if (!this.selectedNodeId)
       return;
     const node = this.findNodeById(this.mindMapData.root, this.selectedNodeId);
-    if (node && node.children.length > 0) {
-      this.selectedNodeId = node.children[0].id;
+    if (node && node.children.length > 0 && !node.collapsed) {
+      this.layoutMindMap();
+      const children = node.children.slice().sort((a, b) => {
+        var _a, _b, _c, _d;
+        return ((_a = a.y) != null ? _a : 0) - ((_b = b.y) != null ? _b : 0) || ((_c = a.x) != null ? _c : 0) - ((_d = b.x) != null ? _d : 0);
+      });
+      this.selectedNodeId = children[0].id;
       if (!isMultiSelect) {
         this.selectedNodeIds.clear();
       }
@@ -1065,10 +1266,13 @@ ${jsonData}
       });
       const parentIndexInGrandParent = grandParent.children.findIndex((n) => n.id === parent.id);
       let insertOffset = 1;
+      const inheritSide = grandParent.id === "root" && this.isRadialLayout() ? parent.side === "left" ? "left" : "right" : null;
       for (const id of sortedIds) {
         const indexInParent = parent.children.findIndex((n) => n.id === id);
         const [moved] = parent.children.splice(indexInParent, 1);
         moved.parent = grandParent.id;
+        if (inheritSide)
+          moved.side = inheritSide;
         grandParent.children.splice(parentIndexInGrandParent + insertOffset, 0, moved);
         insertOffset++;
       }
@@ -1233,7 +1437,7 @@ ${jsonData}
   }
   async exportMarkdown() {
     const rootNode = this.mindMapData.root;
-    const baseFileName = (rootNode.text.replace(/[/\\?%*:|"<>]/g, "-").trim() || "Untitled Simple Mindmap") + " (Outline)";
+    const baseFileName = (rootNode.text.replace(/[/\\?%*:|"<>]/g, "-").trim() || "Untitled ObsiMap") + " (Outline)";
     const folder = this.settings.exportFolder;
     await this.ensureFolderExists(folder);
     let fileName = `${baseFileName}.md`;
@@ -1270,6 +1474,7 @@ ${jsonData}
     return md;
   }
   addChildNode(parentId, text) {
+    var _a;
     const isInitial = text === void 0;
     const actualText = isInitial ? "" : text;
     const parent = this.findNodeById(this.mindMapData.root, parentId);
@@ -1282,6 +1487,10 @@ ${jsonData}
         children: [],
         parent: parentId
       };
+      if (parentId === "root" && this.isRadialLayout()) {
+        newNode.side = (_a = this.pendingRootDropSide) != null ? _a : this.pickBalancedSide(parent.children);
+        this.pendingRootDropSide = null;
+      }
       parent.children.push(newNode);
       this.selectedNodeId = newNode.id;
       this.selectedNodeIds.clear();
@@ -1309,6 +1518,10 @@ ${jsonData}
         children: [],
         parent: parent.id
       };
+      if (parent.id === "root" && this.isRadialLayout()) {
+        const sibling = this.findNodeById(this.mindMapData.root, nodeId);
+        newNode.side = (sibling == null ? void 0 : sibling.side) === "left" ? "left" : "right";
+      }
       const index = parent.children.findIndex((n) => n.id === nodeId);
       parent.children.splice(index + 1, 0, newNode);
       this.selectedNodeId = newNode.id;
@@ -1493,15 +1706,27 @@ ${jsonData}
   }
   resolveDropMode(node, relativeX, relativeY, width, height = _MindMapView.NODE_HEIGHT) {
     if (node.id === "root") {
+      if (this.isRadialLayout()) {
+        if (relativeX > width * 0.6) {
+          this.pendingRootDropSide = "right";
+          return "child";
+        }
+        if (relativeX < width * 0.4) {
+          this.pendingRootDropSide = "left";
+          return "child";
+        }
+        return "replace";
+      }
       if (relativeX > width * 0.6)
         return "child";
       return "replace";
     }
+    const growsLeft = this.isRadialLayout() && this.getBranchSide(node) === "left";
     if (relativeY < height * 0.3)
       return "above";
     if (relativeY > height * 0.7)
       return "below";
-    if (relativeX > width * 0.72)
+    if (growsLeft ? relativeX < width * 0.28 : relativeX > width * 0.72)
       return "child";
     return "replace";
   }
@@ -1514,6 +1739,8 @@ ${jsonData}
     const relX = mapX - nx;
     const relY = mapY - ny;
     const gap = _MindMapView.SIBLING_DROP_GAP;
+    const branchGap = _MindMapView.BRANCH_GAP;
+    const growsLeft = this.isRadialLayout() && this.getBranchSide(node) === "left";
     if (node.id !== "root") {
       if (relX >= 0 && relX <= width) {
         if (relY >= -gap && relY < 0)
@@ -1525,7 +1752,20 @@ ${jsonData}
     if (relX >= 0 && relX <= width && relY >= 0 && relY <= height) {
       return this.resolveDropMode(node, relX, relY, width, height);
     }
-    if (relX > width && relX <= width + 80 && relY >= 0 && relY <= height) {
+    if (node.id === "root" && this.isRadialLayout()) {
+      if (relX >= -branchGap && relX < 0 && relY >= 0 && relY <= height) {
+        this.pendingRootDropSide = "left";
+        return "child";
+      }
+      if (relX > width && relX <= width + branchGap && relY >= 0 && relY <= height) {
+        this.pendingRootDropSide = "right";
+        return "child";
+      }
+    } else if (growsLeft) {
+      if (relX >= -branchGap && relX < 0 && relY >= 0 && relY <= height) {
+        return "child";
+      }
+    } else if (relX > width && relX <= width + branchGap && relY >= 0 && relY <= height) {
       return "child";
     }
     return null;
@@ -1616,6 +1856,9 @@ ${jsonData}
       children: [],
       parent: parent.id
     };
+    if (parent.id === "root" && this.isRadialLayout()) {
+      newNode.side = targetNode.side === "left" ? "left" : "right";
+    }
     const targetIndex = parent.children.findIndex((n) => n.id === targetNode.id);
     const insertIndex = dropMode === "above" ? targetIndex : targetIndex + 1;
     parent.children.splice(insertIndex, 0, newNode);
@@ -1687,6 +1930,7 @@ ${jsonData}
     return false;
   }
   moveNode(nodeId, targetId, mode) {
+    var _a;
     const idsToMove = this.selectedNodeIds.has(nodeId) ? Array.from(this.selectedNodeIds) : [nodeId];
     const firstId = idsToMove[0];
     const oldParent = this.findParentNode(this.mindMapData.root, firstId);
@@ -1720,6 +1964,11 @@ ${jsonData}
         if (newParent) {
           for (const node of nodesToMove) {
             node.parent = targetId;
+            if (targetId === "root" && this.isRadialLayout()) {
+              node.side = (_a = this.pendingRootDropSide) != null ? _a : this.pickBalancedSide(newParent.children);
+            } else if (targetId !== "root") {
+              delete node.side;
+            }
             newParent.children.push(node);
           }
         }
@@ -1728,13 +1977,20 @@ ${jsonData}
         if (targetParent) {
           const targetIndex = targetParent.children.findIndex((n) => n.id === targetId);
           const insertIndex = mode === "above" ? targetIndex : targetIndex + 1;
+          const targetNode = this.findNodeById(this.mindMapData.root, targetId);
           for (let i = 0; i < nodesToMove.length; i++) {
             const node = nodesToMove[i];
             node.parent = targetParent.id;
+            if (targetParent.id === "root" && this.isRadialLayout()) {
+              node.side = (targetNode == null ? void 0 : targetNode.side) === "left" ? "left" : "right";
+            } else {
+              delete node.side;
+            }
             targetParent.children.splice(insertIndex + i, 0, node);
           }
         }
       }
+      this.pendingRootDropSide = null;
       this.render();
       void this.saveMindMap(true);
     }
@@ -1814,10 +2070,55 @@ ${jsonData}
       this.teardownEditInput();
     }
     this.g.innerHTML = "";
-    this.calculateLayout(this.mindMapData.root, 100, 300);
+    this.layoutMindMap();
     this.renderConnections(this.mindMapData.root);
     this.renderNodes(this.mindMapData.root);
     this.updateTransform();
+  }
+  isRadialLayout() {
+    return this.settings.layoutMode === "radial";
+  }
+  /** Prefer the side with fewer root topics; ties go to the right (common mind-map default). */
+  pickBalancedSide(existingRootChildren) {
+    let left = 0;
+    let right = 0;
+    for (const child of existingRootChildren) {
+      if (child.side === "left")
+        left++;
+      else
+        right++;
+    }
+    return left < right ? "left" : "right";
+  }
+  ensureRootChildSides() {
+    const children = this.mindMapData.root.children;
+    for (const child of children) {
+      if (child.side !== "left" && child.side !== "right") {
+        child.side = this.pickBalancedSide(children.filter((c) => c.side === "left" || c.side === "right"));
+      }
+    }
+  }
+  /** Side of the root branch this node belongs to (radial layout). */
+  getBranchSide(node) {
+    if (node.id === "root")
+      return "right";
+    let current = node;
+    while (current) {
+      const parent = this.findParentNode(this.mindMapData.root, current.id);
+      if (!parent || parent.id === "root") {
+        return current.side === "left" ? "left" : "right";
+      }
+      current = parent;
+    }
+    return "right";
+  }
+  layoutMindMap() {
+    if (this.isRadialLayout()) {
+      this.ensureRootChildSides();
+      this.calculateRadialLayout();
+    } else {
+      this.calculateOutlineLayout(this.mindMapData.root, 100, 300);
+    }
   }
   calculateSubtreeHeight(node) {
     if (node.children.length === 0 || node.collapsed)
@@ -1826,23 +2127,78 @@ ${jsonData}
     node.children.forEach((child) => {
       totalHeight += this.calculateSubtreeHeight(child);
     });
-    totalHeight += (node.children.length - 1) * 30;
+    totalHeight += (node.children.length - 1) * _MindMapView.SIBLING_GAP;
     return Math.max(60, totalHeight);
   }
-  calculateLayout(node, x, y) {
+  /** Current / outline mode: grow to the right of every parent. */
+  calculateOutlineLayout(node, x, y) {
     node.x = x;
     node.y = y;
     if (node.children.length === 0 || node.collapsed)
       return;
     const nodeWidth = this.getNodeWidth(node.text);
-    const nextX = x + nodeWidth + 80;
+    const nextX = x + nodeWidth + _MindMapView.BRANCH_GAP;
     const totalSubtreeHeight = this.calculateSubtreeHeight(node);
     let currentY = y - totalSubtreeHeight / 2;
     node.children.forEach((child) => {
       const childSubtreeHeight = this.calculateSubtreeHeight(child);
       const childY = currentY + childSubtreeHeight / 2;
-      this.calculateLayout(child, nextX, childY);
-      currentY += childSubtreeHeight + 30;
+      this.calculateOutlineLayout(child, nextX, childY);
+      currentY += childSubtreeHeight + _MindMapView.SIBLING_GAP;
+    });
+  }
+  /** Radial mode: root in the center, topics on left and right. */
+  calculateRadialLayout() {
+    const root = this.mindMapData.root;
+    const rootX = _MindMapView.RADIAL_ROOT_X;
+    const rootY = _MindMapView.RADIAL_ROOT_Y;
+    root.x = rootX;
+    root.y = rootY;
+    if (root.children.length === 0 || root.collapsed)
+      return;
+    const rootWidth = this.getNodeWidth(root.text);
+    const rightChildren = root.children.filter((c) => c.side !== "left");
+    const leftChildren = root.children.filter((c) => c.side === "left");
+    this.layoutSideChildren(rightChildren, rootX + rootWidth + _MindMapView.BRANCH_GAP, rootY, "right");
+    this.layoutSideChildren(leftChildren, rootX - _MindMapView.BRANCH_GAP, rootY, "left");
+  }
+  layoutSideChildren(children, anchorX, parentY, direction) {
+    if (children.length === 0)
+      return;
+    let totalHeight = 0;
+    children.forEach((child, i) => {
+      totalHeight += this.calculateSubtreeHeight(child);
+      if (i < children.length - 1)
+        totalHeight += _MindMapView.SIBLING_GAP;
+    });
+    let currentY = parentY - totalHeight / 2;
+    for (const child of children) {
+      const childSubtreeHeight = this.calculateSubtreeHeight(child);
+      const childY = currentY + childSubtreeHeight / 2;
+      if (direction === "right") {
+        this.calculateOutlineLayout(child, anchorX, childY);
+      } else {
+        const childWidth = this.getNodeWidth(child.text);
+        this.calculateLeftwardLayout(child, anchorX - childWidth, childY);
+      }
+      currentY += childSubtreeHeight + _MindMapView.SIBLING_GAP;
+    }
+  }
+  /** Grow further to the left (mirror of outline layout). */
+  calculateLeftwardLayout(node, x, y) {
+    node.x = x;
+    node.y = y;
+    if (node.children.length === 0 || node.collapsed)
+      return;
+    const totalSubtreeHeight = this.calculateSubtreeHeight(node);
+    let currentY = y - totalSubtreeHeight / 2;
+    node.children.forEach((child) => {
+      const childSubtreeHeight = this.calculateSubtreeHeight(child);
+      const childY = currentY + childSubtreeHeight / 2;
+      const childWidth = this.getNodeWidth(child.text);
+      const childX = x - _MindMapView.BRANCH_GAP - childWidth;
+      this.calculateLeftwardLayout(child, childX, childY);
+      currentY += childSubtreeHeight + _MindMapView.SIBLING_GAP;
     });
   }
   renderNodes(node) {
@@ -1858,10 +2214,16 @@ ${jsonData}
       var _a, _b, _c, _d;
       const path = document.createElementNS("http://www.w3.org/2000/svg", "path");
       const nodeWidth = this.getNodeWidth(node.text);
-      const x1 = ((_a = node.x) != null ? _a : 0) + nodeWidth;
-      const y1 = ((_b = node.y) != null ? _b : 0) + 20;
-      const x2 = (_c = child.x) != null ? _c : 0;
+      const childWidth = this.getNodeWidth(child.text);
+      const parentLeft = (_a = node.x) != null ? _a : 0;
+      const parentRight = parentLeft + nodeWidth;
+      const childLeft = (_b = child.x) != null ? _b : 0;
+      const childRight = childLeft + childWidth;
+      const y1 = ((_c = node.y) != null ? _c : 0) + 20;
       const y2 = ((_d = child.y) != null ? _d : 0) + 20;
+      const childIsLeft = childRight <= parentLeft + 1;
+      const x1 = childIsLeft ? parentLeft : parentRight;
+      const x2 = childIsLeft ? childRight : childLeft;
       const cp1x = x1 + (x2 - x1) / 2;
       const cp2x = x1 + (x2 - x1) / 2;
       const d = `M ${x1} ${y1} C ${cp1x} ${y1}, ${cp2x} ${y2}, ${x2} ${y2}`;
@@ -1884,21 +2246,23 @@ ${jsonData}
     nodeG.setAttribute("transform", `translate(${node.x}, ${node.y})`);
     nodeG.setAttribute("data-node-id", node.id);
     if (node.children.length > 0) {
+      const growsLeft2 = this.isRadialLayout() && this.getBranchSide(node) === "left";
+      const toggleX = growsLeft2 ? -10 : nodeWidth + 10;
       const toggleBtn = document.createElementNS("http://www.w3.org/2000/svg", "circle");
-      toggleBtn.setAttribute("cx", (nodeWidth + 10).toString());
+      toggleBtn.setAttribute("cx", toggleX.toString());
       toggleBtn.setAttribute("cy", "20");
       toggleBtn.setAttribute("r", "8");
       toggleBtn.classList.add("mindmap-node-toggle");
       nodeG.appendChild(toggleBtn);
       const toggleSymbol = document.createElementNS("http://www.w3.org/2000/svg", "text");
-      toggleSymbol.setAttribute("x", (nodeWidth + 10).toString());
+      toggleSymbol.setAttribute("x", toggleX.toString());
       toggleSymbol.setAttribute("y", "23.5");
       toggleSymbol.setAttribute("text-anchor", "middle");
       toggleSymbol.classList.add("mindmap-node-toggle-symbol");
       toggleSymbol.textContent = node.collapsed ? "+" : "-";
       nodeG.appendChild(toggleSymbol);
       const hitArea = document.createElementNS("http://www.w3.org/2000/svg", "circle");
-      hitArea.setAttribute("cx", (nodeWidth + 10).toString());
+      hitArea.setAttribute("cx", toggleX.toString());
       hitArea.setAttribute("cy", "20");
       hitArea.setAttribute("r", "15");
       hitArea.setAttribute("fill", "white");
@@ -2087,13 +2451,15 @@ ${jsonData}
     }
     nodeG.appendChild(rect);
     nodeG.appendChild(text);
+    const growsLeft = this.isRadialLayout() && this.getBranchSide(node) === "left";
     const childPath = document.createElementNS("http://www.w3.org/2000/svg", "path");
     const r = 24;
-    const cx = nodeWidth - 20;
+    const cx = growsLeft ? 20 : nodeWidth - 20;
     const cy = 20;
-    const startAngle = -Math.PI / 12;
-    const endAngle = Math.PI / 12;
-    const d = `M ${cx + r * Math.cos(startAngle)},${cy + r * Math.sin(startAngle)} A ${r},${r} 0 0 1 ${cx + r * Math.cos(endAngle)},${cy + r * Math.sin(endAngle)}`;
+    const startAngle = growsLeft ? Math.PI - Math.PI / 12 : -Math.PI / 12;
+    const endAngle = growsLeft ? Math.PI + Math.PI / 12 : Math.PI / 12;
+    const sweep = growsLeft ? 0 : 1;
+    const d = `M ${cx + r * Math.cos(startAngle)},${cy + r * Math.sin(startAngle)} A ${r},${r} 0 0 ${sweep} ${cx + r * Math.cos(endAngle)},${cy + r * Math.sin(endAngle)}`;
     childPath.setAttribute("d", d);
     childPath.setAttribute("fill", "none");
     childPath.classList.add("drag-indicator-line", "indicator-child");
@@ -2271,10 +2637,10 @@ ${jsonData}
     });
   }
   async onClose() {
-    if (this.boundWindowKeyDown) {
+    if (this.boundWindowKeyDown)
       window.removeEventListener("keydown", this.boundWindowKeyDown, false);
-      this.boundWindowKeyDown = null;
-    }
+    this.boundWindowKeyDown = null;
+    this.headerGuardKeyDown = null;
     this.teardownEditInput();
   }
   openNoteSearch() {
@@ -2360,13 +2726,17 @@ MindMapView.LONG_PRESS_MS = 500;
 MindMapView.LONG_PRESS_MOVE_THRESHOLD = 10;
 MindMapView.NODE_HEIGHT = 40;
 MindMapView.SIBLING_DROP_GAP = 40;
+MindMapView.BRANCH_GAP = 80;
+MindMapView.SIBLING_GAP = 30;
+MindMapView.RADIAL_ROOT_X = 500;
+MindMapView.RADIAL_ROOT_Y = 300;
 var NoteSuggestModal = class extends import_obsidian.FuzzySuggestModal {
   constructor(app, onSelect) {
     super(app);
     this.onSelect = onSelect;
   }
   getItems() {
-    return this.app.vault.getMarkdownFiles();
+    return collectMarkdownFilesInFolder(this.app.vault.getRoot());
   }
   getItemText(file) {
     return file.path;
@@ -2381,7 +2751,7 @@ var FileSuggestModal = class extends import_obsidian.FuzzySuggestModal {
     this.onSelect = onSelect;
   }
   getItems() {
-    return this.app.vault.getMarkdownFiles();
+    return collectMarkdownFilesInFolder(this.app.vault.getRoot());
   }
   getItemText(file) {
     return file.path;

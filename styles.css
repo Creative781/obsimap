@@ -1,59 +1,51 @@
-/* File Explorer: Show BADGE, Hide Icon */
-.nav-file-title[data-path$=".mindmap"] .nav-file-icon {
-    display: none !important;
+/* File Explorer: show MINDMAP badge, hide default icon */
+body .nav-files-container .nav-file-title[data-path$=".mindmap"] .nav-file-icon {
+    display: none;
 }
 
-.nav-file-title[data-path$=".mindmap"]::after {
-    display: block !important;
-    content: "MINDMAP" !important;
-    position: absolute !important;
-    right: 8px !important;
-    top: 50% !important;
-    transform: translateY(-50%) !important;
-    background-color: var(--background-secondary) !important;
-    color: var(--text-muted) !important;
-    font-size: 7px !important;
-    font-weight: 500 !important;
-    padding: 2px 5px !important;
-    border: 0.5px solid var(--divider-color) !important;
-    border-radius: 4px !important;
-    text-transform: uppercase !important;
-    letter-spacing: 0.3px !important;
-    pointer-events: none !important;
-    z-index: 100 !important;
-    line-height: 1.1 !important;
+body .nav-files-container .nav-file-title[data-path$=".mindmap"]::after {
+    display: block;
+    content: "MINDMAP";
+    position: absolute;
+    right: 8px;
+    top: 50%;
+    transform: translateY(-50%);
+    background-color: var(--background-secondary);
+    color: var(--text-muted);
+    font-size: 7px;
+    font-weight: 500;
+    padding: 2px 5px;
+    border: 0.5px solid var(--divider-color);
+    border-radius: 4px;
+    text-transform: uppercase;
+    letter-spacing: 0.3px;
+    pointer-events: none;
+    z-index: 100;
+    line-height: 1.1;
 }
 
-
-/* Bookmarks & Search Results: Show ICON, Hide Badge */
-.tree-item-self[data-path$=".mindmap"] .tree-item-icon {
-    display: flex !important;
+/* Bookmarks & search: custom icon, hide badge */
+body .tree-item-self[data-path$=".mindmap"] .tree-item-icon {
+    display: flex;
     align-items: center;
     justify-content: center;
 }
 
-.tree-item-self[data-path$=".mindmap"]::after {
-    display: none !important;
-    content: none !important;
+body .tree-item-self[data-path$=".mindmap"]::after {
+    display: none;
+    content: none;
 }
 
-/* Custom Icon for Bookmarks */
-.tree-item-self[data-path$=".mindmap"] .tree-item-icon svg {
-    display: none !important;
+body .tree-item-self[data-path$=".mindmap"] .tree-item-icon svg {
+    display: none;
 }
 
-.tree-item-self[data-path$=".mindmap"] .tree-item-icon::before {
+body .tree-item-self[data-path$=".mindmap"] .tree-item-icon::before {
     content: "";
     display: block;
     width: 16px;
     height: 16px;
-    background-color: var(--text-muted);
-    -webkit-mask-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='currentColor' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Ccircle cx='5' cy='6' r='3'/%3E%3Cpath d='M5 9v6'/%3E%3Ccircle cx='5' cy='18' r='3'/%3E%3Cpath d='M12 3v18'/%3E%3Ccircle cx='19' cy='6' r='3'/%3E%3Cpath d='M16 15.7A9 9 0 0 0 19 9'/%3E%3C/svg%3E");
-    mask-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='currentColor' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Ccircle cx='5' cy='6' r='3'/%3E%3Cpath d='M5 9v6'/%3E%3Ccircle cx='5' cy='18' r='3'/%3E%3Cpath d='M12 3v18'/%3E%3Ccircle cx='19' cy='6' r='3'/%3E%3Cpath d='M16 15.7A9 9 0 0 0 19 9'/%3E%3C/svg%3E");
-    -webkit-mask-repeat: no-repeat;
-    mask-repeat: no-repeat;
-    -webkit-mask-size: contain;
-    mask-size: contain;
+    background: center / contain no-repeat url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%23888888' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Ccircle cx='5' cy='6' r='3'/%3E%3Cpath d='M5 9v6'/%3E%3Ccircle cx='5' cy='18' r='3'/%3E%3Cpath d='M12 3v18'/%3E%3Ccircle cx='19' cy='6' r='3'/%3E%3Cpath d='M16 15.7A9 9 0 0 0 19 9'/%3E%3C/svg%3E");
 }
 
 
@@ -228,10 +220,9 @@
     /* Contrast against node */
 }
 
-.drag-indicator-line.is-visible {
-    opacity: 1 !important;
-    /* Force full visibility */
-    display: block !important;
+.mind-map-view .drag-indicator-line.is-visible {
+    opacity: 1;
+    display: block;
 }
 
 .mindmap-ghost-node {
@@ -447,9 +438,9 @@
 }
 
 /* Support & Social Links */
-.obsimap-support-coffee img {
-    height: 40px !important;
-    width: 144px !important;
+.setting-item .obsimap-support-coffee img {
+    height: 40px;
+    width: 144px;
     margin-bottom: 15px;
     display: block;
 }
@@ -468,8 +459,4 @@
 
 .obsimap-social-link:hover {
     text-decoration: underline;
-}
-
-.view-header-title.is-renamable {
-    cursor: text !important;
 }

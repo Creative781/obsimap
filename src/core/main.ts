@@ -22,9 +22,37 @@ import {
     MindMapNode
 } from "../shared/types";
 
+/** Collect folders by walking the in-memory vault tree (avoids getAllLoadedFiles). */
+function collectVaultFolders(root: TFolder): TFolder[] {
+    const folders: TFolder[] = [];
+    const walk = (folder: TFolder) => {
+        folders.push(folder);
+        for (const child of folder.children) {
+            if (child instanceof TFolder) walk(child);
+        }
+    };
+    walk(root);
+    return folders;
+}
+
+/** Collect markdown files under a folder via tree walk (avoids getMarkdownFiles). */
+function collectMarkdownFilesInFolder(folder: TFolder): TFile[] {
+    const files: TFile[] = [];
+    const walk = (dir: TFolder) => {
+        for (const child of dir.children) {
+            if (child instanceof TFile && child.extension === "md") files.push(child);
+            else if (child instanceof TFolder) walk(child);
+        }
+    };
+    walk(folder);
+    return files;
+}
+
 export default class MindMapPlugin extends Plugin {
     settings: MindMapSettings;
     isInternalRenaming = false;
+    /** Paths of .mindmap files, kept in sync via vault events and layout-ready scan. */
+    mindmapPaths = new Set<string>();
 
     async onload() {
         await this.loadSettings();
@@ -76,6 +104,57 @@ export default class MindMapPlugin extends Plugin {
                 }
             })
         );
+
+        this.registerEvent(
+            this.app.vault.on("create", (file) => {
+                if (file instanceof TFile && file.extension === "mindmap") {
+                    this.mindmapPaths.add(file.path);
+                }
+            })
+        );
+        this.registerEvent(
+            this.app.vault.on("delete", (file) => {
+                if (file instanceof TFile && file.extension === "mindmap") {
+                    this.mindmapPaths.delete(file.path);
+                }
+            })
+        );
+        this.registerEvent(
+            this.app.vault.on("rename", (file, oldPath) => {
+                if (file instanceof TFile && file.extension === "mindmap") {
+                    this.mindmapPaths.delete(oldPath);
+                    this.mindmapPaths.add(file.path);
+                }
+            })
+        );
+
+        this.app.workspace.onLayoutReady(() => {
+            void this.refreshMindmapPaths();
+        });
+    }
+
+    /** Discover .mindmap paths via adapter listing (no vault.getFiles). */
+    async refreshMindmapPaths(): Promise<void> {
+        const found = new Set<string>();
+        await this.listMindmapPathsInDir(this.app.vault.getRoot().path, found);
+        this.mindmapPaths = found;
+    }
+
+    private async listMindmapPathsInDir(dir: string, found: Set<string>): Promise<void> {
+        let entries: string[];
+        try {
+            entries = await this.app.vault.adapter.list(dir);
+        } catch {
+            return;
+        }
+        for (const entry of entries) {
+            const fullPath = dir ? `${dir}/${entry}` : entry;
+            if (entry.endsWith(".mindmap")) {
+                found.add(fullPath);
+            } else if (!entry.includes(".")) {
+                await this.listMindmapPathsInDir(fullPath, found);
+            }
+        }
     }
 
     async loadSettings() {
@@ -83,6 +162,9 @@ export default class MindMapPlugin extends Plugin {
         this.settings = Object.assign({}, DEFAULT_SETTINGS, data);
         if (data && data.hotkeys) {
             this.settings.hotkeys = Object.assign({}, DEFAULT_SETTINGS.hotkeys, data.hotkeys);
+        }
+        if (this.settings.layoutMode !== "radial" && this.settings.layoutMode !== "outline") {
+            this.settings.layoutMode = "outline";
         }
     }
 
@@ -97,9 +179,9 @@ export default class MindMapPlugin extends Plugin {
 
         if (oldName === newName) return;
 
-        const mindmapFiles = this.app.vault.getFiles().filter(f => f.extension === "mindmap");
-
-        for (const mmFile of mindmapFiles) {
+        for (const path of this.mindmapPaths) {
+            const mmFile = this.app.vault.getAbstractFileByPath(path);
+            if (!(mmFile instanceof TFile)) continue;
             let content = await this.app.vault.read(mmFile);
             // Handle both exact matches and matches with aliases [[OldName|Alias]]
             const oldLinkRegex = new RegExp(`\\[\\[${this.escapeRegExp(oldName)}(\\|[^\\]]+)?\\]\\]`, 'g');
@@ -232,6 +314,25 @@ class MindMapSettingTab extends PluginSettingTab {
                         const leaves = this.app.workspace.getLeavesOfType(VIEW_TYPE_MIND_MAP);
                         const view = leaves.length > 0 ? leaves[0].view : null;
                         if (view instanceof MindMapView) view.updateTheme(this.plugin.settings.theme);
+                    })
+            );
+
+        new Setting(containerEl)
+            .setName("Mind map layout")
+            .setDesc(
+                "Outline grows to the right like a list. Radial places root topics on both left and right (auto-balanced)."
+            )
+            .addDropdown((dropdown) =>
+                dropdown
+                    .addOption("outline", "Outline (list)")
+                    .addOption("radial", "Radial (balanced)")
+                    .setValue(this.plugin.settings.layoutMode ?? "outline")
+                    .onChange((value: string) => {
+                        this.plugin.settings.layoutMode = value === "radial" ? "radial" : "outline";
+                        void this.plugin.saveSettings();
+                        this.app.workspace.getLeavesOfType(VIEW_TYPE_MIND_MAP).forEach((leaf) => {
+                            if (leaf.view instanceof MindMapView) leaf.view.render();
+                        });
                     })
             );
 
@@ -410,7 +511,7 @@ class FolderSuggestModal extends FuzzySuggestModal<TFolder> {
     constructor(app: App, onSelect: (folder: TFolder) => void) {
         super(app);
         this.onSelect = onSelect;
-        this.folders = this.app.vault.getAllLoadedFiles().filter((f): f is TFolder => f instanceof TFolder);
+        this.folders = collectVaultFolders(this.app.vault.getRoot());
     }
 
     getItems(): TFolder[] {
@@ -497,10 +598,17 @@ class MindMapView extends TextFileView {
     private viewportResizeRaf: number | null = null;
     private svgContainerEl: HTMLElement | null = null;
     private boundWindowKeyDown: ((e: KeyboardEvent) => void) | null = null;
+    private headerGuardKeyDown: ((e: KeyboardEvent) => void) | null = null;
     private static readonly LONG_PRESS_MS = 500;
     private static readonly LONG_PRESS_MOVE_THRESHOLD = 10;
     private static readonly NODE_HEIGHT = 40;
     private static readonly SIBLING_DROP_GAP = 40;
+    private static readonly BRANCH_GAP = 80;
+    private static readonly SIBLING_GAP = 30;
+    private static readonly RADIAL_ROOT_X = 500;
+    private static readonly RADIAL_ROOT_Y = 300;
+    /** When dropping onto root as child in radial mode, prefer this side. */
+    private pendingRootDropSide: "left" | "right" | null = null;
 
     constructor(leaf: WorkspaceLeaf, plugin: MindMapPlugin) {
         super(leaf);
@@ -516,6 +624,13 @@ class MindMapView extends TextFileView {
         };
         this.selectedNodeId = "root";
         this.selectedNodeIds.add("root");
+    }
+
+    private isHeaderTitleEditing(): boolean {
+        // The plugin no longer turns the view header title contenteditable;
+        // rename always goes through a modal. Returning false keeps focus
+        // routing simple and prevents stuck-focus on the title.
+        return false;
     }
 
     focusContainer() {
@@ -546,7 +661,7 @@ class MindMapView extends TextFileView {
 
     getDisplayText(): string {
         if (this.file) return this.file.basename;
-        return "Simple Mindmap";
+        return "Obsimap";
     }
 
     getViewData(): string {
@@ -610,7 +725,6 @@ class MindMapView extends TextFileView {
         const btnContainer = controls.createEl("div", { cls: "toolbar-buttons" });
         this.createControlButton(btnContainer, "lucide-file-input", "Import markdown", () => void this.promptImport());
         this.createControlButton(btnContainer, "lucide-file-output", "Export markdown", () => void this.exportMarkdown());
-
         this.createControlButton(btnContainer, "lucide-file-text", "Full note", () => void this.exportFullNote());
 
         this.svg = document.createElementNS("http://www.w3.org/2000/svg", "svg");
@@ -620,7 +734,8 @@ class MindMapView extends TextFileView {
         svgContainer.appendChild(this.svg);
 
         // Auto-focus the container so keyboard navigation works immediately.
-        // No inline title rename — rename uses a modal to avoid stuck focus in the header.
+        // No inline title rename — Obsidian/our modal handles renaming so focus
+        // never leaves the map pane unexpectedly.
         setTimeout(() => {
             svgContainer.focus();
         }, 100);
@@ -628,12 +743,20 @@ class MindMapView extends TextFileView {
         this.g = document.createElementNS("http://www.w3.org/2000/svg", "g");
         this.svg.appendChild(this.g);
 
+        // Ensure clicking in the map pane focuses it.
+        this.registerDomEvent(svgContainer, "pointerdown", (e: PointerEvent) => {
+            if (e.button !== 0 && e.button !== 1) return;
+            svgContainer.focus({ preventScroll: true });
+        });
+
+        // Global (bubble) hotkeys: act only when this view is active.
         this.boundWindowKeyDown = (e: KeyboardEvent) => {
             if (this.app.workspace.getActiveViewOfType(MindMapView) !== this) return;
             if (Date.now() < this.suppressHotkeysUntil) return;
             if (this.isNodeTextEditActive()) return;
+            if (this.isHeaderTitleEditing()) return;
+
             const targetEl = e.target instanceof HTMLElement ? e.target : null;
-            if (targetEl && targetEl.classList.contains("mindmap-edit-input")) return;
             // Never hijack keystrokes from the Obsidian view header (title, buttons, etc.)
             if (targetEl && targetEl.closest(".view-header")) return;
             // Don't hijack normal typing.
@@ -651,7 +774,6 @@ class MindMapView extends TextFileView {
             }
             this.handleKeyDown(e);
         };
-        // Bubble phase so the edit <input> can stopPropagation before Enter reaches addSibling (Enter).
         window.addEventListener("keydown", this.boundWindowKeyDown, false);
 
         this.registerDomEvent(svgContainer, "dragover", (e: DragEvent) => {
@@ -911,10 +1033,17 @@ class MindMapView extends TextFileView {
         // 2. Cmd/Ctrl + Arrows or Plain Arrows: Navigation/Selection
         if (key === "ArrowUp" || key === "ArrowDown" || key === "ArrowLeft" || key === "ArrowRight") {
             e.preventDefault();
-            if (key === "ArrowUp") this.navigateSibling(-1, isMultiSelect);
-            else if (key === "ArrowDown") this.navigateSibling(1, isMultiSelect);
-            else if (key === "ArrowLeft") this.navigateParent(isMultiSelect);
-            else if (key === "ArrowRight") this.navigateChild(isMultiSelect);
+            if (this.isRadialLayout()) {
+                this.navigateRadial(key, isMultiSelect);
+            } else if (key === "ArrowUp") {
+                this.navigateSibling(-1, isMultiSelect);
+            } else if (key === "ArrowDown") {
+                this.navigateSibling(1, isMultiSelect);
+            } else if (key === "ArrowLeft") {
+                this.navigateParent(isMultiSelect);
+            } else if (key === "ArrowRight") {
+                this.navigateChild(isMultiSelect);
+            }
             return;
         }
 
@@ -1021,11 +1150,66 @@ class MindMapView extends TextFileView {
         });
     }
 
+    /**
+     * Radial layout: arrows follow on-screen direction.
+     * Left branch grows leftward, so ← goes to child and → goes to parent.
+     */
+    navigateRadial(key: string, isMultiSelect: boolean = false) {
+        if (key === "ArrowUp") {
+            this.navigateSibling(-1, isMultiSelect);
+            return;
+        }
+        if (key === "ArrowDown") {
+            this.navigateSibling(1, isMultiSelect);
+            return;
+        }
+
+        if (this.selectedNodeId === "root") {
+            if (key === "ArrowLeft") this.navigateRootSideChild("left", isMultiSelect);
+            else if (key === "ArrowRight") this.navigateRootSideChild("right", isMultiSelect);
+            return;
+        }
+
+        const onLeft = this.getBranchSide(
+            this.findNodeById(this.mindMapData.root, this.selectedNodeId!) ?? this.mindMapData.root
+        ) === "left";
+
+        if (key === "ArrowLeft") {
+            if (onLeft) this.navigateChild(isMultiSelect);
+            else this.navigateParent(isMultiSelect);
+        } else if (key === "ArrowRight") {
+            if (onLeft) this.navigateParent(isMultiSelect);
+            else this.navigateChild(isMultiSelect);
+        }
+    }
+
+    /** From root, move onto the first visible topic on that side (top-most). */
+    private navigateRootSideChild(side: "left" | "right", isMultiSelect: boolean = false) {
+        this.layoutMindMap();
+        const children = this.mindMapData.root.children
+            .filter((c) => (side === "left" ? c.side === "left" : c.side !== "left"))
+            .slice()
+            .sort((a, b) => (a.y ?? 0) - (b.y ?? 0) || (a.x ?? 0) - (b.x ?? 0));
+        if (children.length === 0) return;
+
+        this.selectedNodeId = children[0].id;
+        if (!isMultiSelect) {
+            this.selectedNodeIds.clear();
+        }
+        this.selectedNodeIds.add(this.selectedNodeId);
+        this.render();
+        this.ensureNodeInView(this.selectedNodeId);
+    }
+
     navigateSibling(direction: number, isMultiSelect: boolean = false) {
         if (!this.selectedNodeId) return;
 
+        this.layoutMindMap();
+
         if (this.selectedNodeId === "root") {
-            const children = this.mindMapData.root.children;
+            const children = this.mindMapData.root.children
+                .slice()
+                .sort((a, b) => (a.y ?? 0) - (b.y ?? 0) || (a.x ?? 0) - (b.x ?? 0));
             if (children.length === 0) return;
             const target = direction > 0 ? children[0] : children[children.length - 1];
             this.selectedNodeId = target.id;
@@ -1038,8 +1222,36 @@ class MindMapView extends TextFileView {
             return;
         }
 
-        this.calculateLayout(this.mindMapData.root, 100, 300);
+        // Prefer true siblings (same parent); in radial mode stay on the same side for root topics.
+        const parent = this.findParentNode(this.mindMapData.root, this.selectedNodeId);
+        if (parent) {
+            let siblings = parent.children.slice();
+            if (parent.id === "root" && this.isRadialLayout()) {
+                const side = this.getBranchSide(
+                    this.findNodeById(this.mindMapData.root, this.selectedNodeId) ?? this.mindMapData.root
+                );
+                siblings = siblings.filter((c) =>
+                    side === "left" ? c.side === "left" : c.side !== "left"
+                );
+            }
+            siblings.sort((a, b) => (a.y ?? 0) - (b.y ?? 0) || (a.x ?? 0) - (b.x ?? 0));
+            const index = siblings.findIndex((n) => n.id === this.selectedNodeId);
+            if (index >= 0) {
+                const nextIndex = index + direction;
+                if (nextIndex >= 0 && nextIndex < siblings.length) {
+                    this.selectedNodeId = siblings[nextIndex].id;
+                    if (!isMultiSelect) {
+                        this.selectedNodeIds.clear();
+                    }
+                    this.selectedNodeIds.add(this.selectedNodeId);
+                    this.render();
+                    this.ensureNodeInView(this.selectedNodeId);
+                    return;
+                }
+            }
+        }
 
+        // Fallback: same-depth peers (outline-style cross-branch navigation)
         const depth = this.getNodeDepth(this.selectedNodeId);
         if (depth < 0) return;
 
@@ -1076,8 +1288,12 @@ class MindMapView extends TextFileView {
     navigateChild(isMultiSelect: boolean = false) {
         if (!this.selectedNodeId) return;
         const node = this.findNodeById(this.mindMapData.root, this.selectedNodeId);
-        if (node && node.children.length > 0) {
-            this.selectedNodeId = node.children[0].id;
+        if (node && node.children.length > 0 && !node.collapsed) {
+            this.layoutMindMap();
+            const children = node.children
+                .slice()
+                .sort((a, b) => (a.y ?? 0) - (b.y ?? 0) || (a.x ?? 0) - (b.x ?? 0));
+            this.selectedNodeId = children[0].id;
             if (!isMultiSelect) {
                 this.selectedNodeIds.clear();
             }
@@ -1147,10 +1363,17 @@ class MindMapView extends TextFileView {
 
             const parentIndexInGrandParent = grandParent.children.findIndex((n) => n.id === parent.id);
             let insertOffset = 1;
+            const inheritSide =
+                grandParent.id === "root" && this.isRadialLayout()
+                    ? parent.side === "left"
+                        ? "left"
+                        : "right"
+                    : null;
             for (const id of sortedIds) {
                 const indexInParent = parent.children.findIndex((n) => n.id === id);
                 const [moved] = parent.children.splice(indexInParent, 1);
                 moved.parent = grandParent.id;
+                if (inheritSide) moved.side = inheritSide;
                 grandParent.children.splice(parentIndexInGrandParent + insertOffset, 0, moved);
                 insertOffset++;
             }
@@ -1350,7 +1573,7 @@ class MindMapView extends TextFileView {
     async exportMarkdown() {
         const rootNode = this.mindMapData.root;
         const baseFileName =
-            (rootNode.text.replace(/[/\\?%*:|"<>]/g, "-").trim() || "Untitled Simple Mindmap") + " (Outline)";
+            (rootNode.text.replace(/[/\\?%*:|"<>]/g, "-").trim() || "Untitled ObsiMap") + " (Outline)";
         const folder = this.settings.exportFolder;
         await this.ensureFolderExists(folder);
 
@@ -1402,6 +1625,11 @@ class MindMapView extends TextFileView {
                 children: [],
                 parent: parentId,
             };
+            if (parentId === "root" && this.isRadialLayout()) {
+                newNode.side =
+                    this.pendingRootDropSide ?? this.pickBalancedSide(parent.children);
+                this.pendingRootDropSide = null;
+            }
             parent.children.push(newNode);
             this.selectedNodeId = newNode.id;
             this.selectedNodeIds.clear();
@@ -1430,6 +1658,10 @@ class MindMapView extends TextFileView {
                 children: [],
                 parent: parent.id,
             };
+            if (parent.id === "root" && this.isRadialLayout()) {
+                const sibling = this.findNodeById(this.mindMapData.root, nodeId);
+                newNode.side = sibling?.side === "left" ? "left" : "right";
+            }
             const index = parent.children.findIndex((n) => n.id === nodeId);
             parent.children.splice(index + 1, 0, newNode);
             this.selectedNodeId = newNode.id;
@@ -1658,13 +1890,24 @@ class MindMapView extends TextFileView {
         height: number = MindMapView.NODE_HEIGHT
     ): "child" | "above" | "below" | "replace" {
         if (node.id === "root") {
+            if (this.isRadialLayout()) {
+                if (relativeX > width * 0.6) {
+                    this.pendingRootDropSide = "right";
+                    return "child";
+                }
+                if (relativeX < width * 0.4) {
+                    this.pendingRootDropSide = "left";
+                    return "child";
+                }
+                return "replace";
+            }
             if (relativeX > width * 0.6) return "child";
             return "replace";
         }
-        // Horizontal layout: right = child, top/bottom = sibling, center = replace
+        const growsLeft = this.isRadialLayout() && this.getBranchSide(node) === "left";
         if (relativeY < height * 0.3) return "above";
         if (relativeY > height * 0.7) return "below";
-        if (relativeX > width * 0.72) return "child";
+        if (growsLeft ? relativeX < width * 0.28 : relativeX > width * 0.72) return "child";
         return "replace";
     }
 
@@ -1676,6 +1919,8 @@ class MindMapView extends TextFileView {
         const relX = mapX - nx;
         const relY = mapY - ny;
         const gap = MindMapView.SIBLING_DROP_GAP;
+        const branchGap = MindMapView.BRANCH_GAP;
+        const growsLeft = this.isRadialLayout() && this.getBranchSide(node) === "left";
 
         if (node.id !== "root") {
             // Gap between stacked siblings (below/above indicators sit outside the 40px rect)
@@ -1689,7 +1934,20 @@ class MindMapView extends TextFileView {
             return this.resolveDropMode(node, relX, relY, width, height);
         }
 
-        if (relX > width && relX <= width + 80 && relY >= 0 && relY <= height) {
+        if (node.id === "root" && this.isRadialLayout()) {
+            if (relX >= -branchGap && relX < 0 && relY >= 0 && relY <= height) {
+                this.pendingRootDropSide = "left";
+                return "child";
+            }
+            if (relX > width && relX <= width + branchGap && relY >= 0 && relY <= height) {
+                this.pendingRootDropSide = "right";
+                return "child";
+            }
+        } else if (growsLeft) {
+            if (relX >= -branchGap && relX < 0 && relY >= 0 && relY <= height) {
+                return "child";
+            }
+        } else if (relX > width && relX <= width + branchGap && relY >= 0 && relY <= height) {
             return "child";
         }
 
@@ -1802,6 +2060,9 @@ class MindMapView extends TextFileView {
             children: [],
             parent: parent.id,
         };
+        if (parent.id === "root" && this.isRadialLayout()) {
+            newNode.side = targetNode.side === "left" ? "left" : "right";
+        }
         const targetIndex = parent.children.findIndex((n) => n.id === targetNode.id);
         const insertIndex = dropMode === "above" ? targetIndex : targetIndex + 1;
         parent.children.splice(insertIndex, 0, newNode);
@@ -1912,6 +2173,13 @@ class MindMapView extends TextFileView {
                 if (newParent) {
                     for (const node of nodesToMove) {
                         node.parent = targetId;
+                        if (targetId === "root" && this.isRadialLayout()) {
+                            node.side =
+                                this.pendingRootDropSide ??
+                                this.pickBalancedSide(newParent.children);
+                        } else if (targetId !== "root") {
+                            delete node.side;
+                        }
                         newParent.children.push(node);
                     }
                 }
@@ -1920,14 +2188,21 @@ class MindMapView extends TextFileView {
                 if (targetParent) {
                     const targetIndex = targetParent.children.findIndex(n => n.id === targetId);
                     const insertIndex = mode === "above" ? targetIndex : targetIndex + 1;
+                    const targetNode = this.findNodeById(this.mindMapData.root, targetId);
 
                     for (let i = 0; i < nodesToMove.length; i++) {
                         const node = nodesToMove[i];
                         node.parent = targetParent.id;
+                        if (targetParent.id === "root" && this.isRadialLayout()) {
+                            node.side = targetNode?.side === "left" ? "left" : "right";
+                        } else {
+                            delete node.side;
+                        }
                         targetParent.children.splice(insertIndex + i, 0, node);
                     }
                 }
             }
+            this.pendingRootDropSide = null;
 
             this.render();
             void this.saveMindMap(true);
@@ -2013,10 +2288,57 @@ class MindMapView extends TextFileView {
             this.teardownEditInput();
         }
         this.g.innerHTML = "";
-        this.calculateLayout(this.mindMapData.root, 100, 300);
+        this.layoutMindMap();
         this.renderConnections(this.mindMapData.root);
         this.renderNodes(this.mindMapData.root);
         this.updateTransform();
+    }
+
+    private isRadialLayout(): boolean {
+        return this.settings.layoutMode === "radial";
+    }
+
+    /** Prefer the side with fewer root topics; ties go to the right (common mind-map default). */
+    private pickBalancedSide(existingRootChildren: MindMapNode[]): "left" | "right" {
+        let left = 0;
+        let right = 0;
+        for (const child of existingRootChildren) {
+            if (child.side === "left") left++;
+            else right++;
+        }
+        return left < right ? "left" : "right";
+    }
+
+    private ensureRootChildSides() {
+        const children = this.mindMapData.root.children;
+        for (const child of children) {
+            if (child.side !== "left" && child.side !== "right") {
+                child.side = this.pickBalancedSide(children.filter((c) => c.side === "left" || c.side === "right"));
+            }
+        }
+    }
+
+    /** Side of the root branch this node belongs to (radial layout). */
+    private getBranchSide(node: MindMapNode): "left" | "right" {
+        if (node.id === "root") return "right";
+        let current: MindMapNode | null = node;
+        while (current) {
+            const parent = this.findParentNode(this.mindMapData.root, current.id);
+            if (!parent || parent.id === "root") {
+                return current.side === "left" ? "left" : "right";
+            }
+            current = parent;
+        }
+        return "right";
+    }
+
+    layoutMindMap() {
+        if (this.isRadialLayout()) {
+            this.ensureRootChildSides();
+            this.calculateRadialLayout();
+        } else {
+            this.calculateOutlineLayout(this.mindMapData.root, 100, 300);
+        }
     }
 
     calculateSubtreeHeight(node: MindMapNode): number {
@@ -2025,25 +2347,89 @@ class MindMapView extends TextFileView {
         node.children.forEach((child) => {
             totalHeight += this.calculateSubtreeHeight(child);
         });
-        totalHeight += (node.children.length - 1) * 30;
+        totalHeight += (node.children.length - 1) * MindMapView.SIBLING_GAP;
         return Math.max(60, totalHeight);
     }
 
-    calculateLayout(node: MindMapNode, x: number, y: number) {
+    /** Current / outline mode: grow to the right of every parent. */
+    calculateOutlineLayout(node: MindMapNode, x: number, y: number) {
         node.x = x;
         node.y = y;
         if (node.children.length === 0 || node.collapsed) return;
 
         const nodeWidth = this.getNodeWidth(node.text);
-        const nextX = x + nodeWidth + 80;
+        const nextX = x + nodeWidth + MindMapView.BRANCH_GAP;
         const totalSubtreeHeight = this.calculateSubtreeHeight(node);
 
         let currentY = y - totalSubtreeHeight / 2;
         node.children.forEach((child) => {
             const childSubtreeHeight = this.calculateSubtreeHeight(child);
             const childY = currentY + childSubtreeHeight / 2;
-            this.calculateLayout(child, nextX, childY);
-            currentY += childSubtreeHeight + 30;
+            this.calculateOutlineLayout(child, nextX, childY);
+            currentY += childSubtreeHeight + MindMapView.SIBLING_GAP;
+        });
+    }
+
+    /** Radial mode: root in the center, topics on left and right. */
+    calculateRadialLayout() {
+        const root = this.mindMapData.root;
+        const rootX = MindMapView.RADIAL_ROOT_X;
+        const rootY = MindMapView.RADIAL_ROOT_Y;
+        root.x = rootX;
+        root.y = rootY;
+        if (root.children.length === 0 || root.collapsed) return;
+
+        const rootWidth = this.getNodeWidth(root.text);
+        const rightChildren = root.children.filter((c) => c.side !== "left");
+        const leftChildren = root.children.filter((c) => c.side === "left");
+
+        this.layoutSideChildren(rightChildren, rootX + rootWidth + MindMapView.BRANCH_GAP, rootY, "right");
+        this.layoutSideChildren(leftChildren, rootX - MindMapView.BRANCH_GAP, rootY, "left");
+    }
+
+    private layoutSideChildren(
+        children: MindMapNode[],
+        anchorX: number,
+        parentY: number,
+        direction: "left" | "right"
+    ) {
+        if (children.length === 0) return;
+
+        let totalHeight = 0;
+        children.forEach((child, i) => {
+            totalHeight += this.calculateSubtreeHeight(child);
+            if (i < children.length - 1) totalHeight += MindMapView.SIBLING_GAP;
+        });
+
+        let currentY = parentY - totalHeight / 2;
+        for (const child of children) {
+            const childSubtreeHeight = this.calculateSubtreeHeight(child);
+            const childY = currentY + childSubtreeHeight / 2;
+            if (direction === "right") {
+                this.calculateOutlineLayout(child, anchorX, childY);
+            } else {
+                const childWidth = this.getNodeWidth(child.text);
+                this.calculateLeftwardLayout(child, anchorX - childWidth, childY);
+            }
+            currentY += childSubtreeHeight + MindMapView.SIBLING_GAP;
+        }
+    }
+
+    /** Grow further to the left (mirror of outline layout). */
+    calculateLeftwardLayout(node: MindMapNode, x: number, y: number) {
+        node.x = x;
+        node.y = y;
+        if (node.children.length === 0 || node.collapsed) return;
+
+        const totalSubtreeHeight = this.calculateSubtreeHeight(node);
+        let currentY = y - totalSubtreeHeight / 2;
+        node.children.forEach((child) => {
+            const childSubtreeHeight = this.calculateSubtreeHeight(child);
+            const childY = currentY + childSubtreeHeight / 2;
+            const childWidth = this.getNodeWidth(child.text);
+            const childX = x - MindMapView.BRANCH_GAP - childWidth;
+            this.calculateLeftwardLayout(child, childX, childY);
+            currentY += childSubtreeHeight + MindMapView.SIBLING_GAP;
         });
     }
 
@@ -2059,10 +2445,17 @@ class MindMapView extends TextFileView {
         node.children.forEach((child) => {
             const path = document.createElementNS("http://www.w3.org/2000/svg", "path");
             const nodeWidth = this.getNodeWidth(node.text);
-            const x1 = (node.x ?? 0) + nodeWidth;
+            const childWidth = this.getNodeWidth(child.text);
+            const parentLeft = node.x ?? 0;
+            const parentRight = parentLeft + nodeWidth;
+            const childLeft = child.x ?? 0;
+            const childRight = childLeft + childWidth;
             const y1 = (node.y ?? 0) + 20;
-            const x2 = child.x ?? 0;
             const y2 = (child.y ?? 0) + 20;
+
+            const childIsLeft = childRight <= parentLeft + 1;
+            const x1 = childIsLeft ? parentLeft : parentRight;
+            const x2 = childIsLeft ? childRight : childLeft;
 
             const cp1x = x1 + (x2 - x1) / 2;
             const cp2x = x1 + (x2 - x1) / 2;
@@ -2091,15 +2484,17 @@ class MindMapView extends TextFileView {
 
         // Add toggle button for nodes with children
         if (node.children.length > 0) {
+            const growsLeft = this.isRadialLayout() && this.getBranchSide(node) === "left";
+            const toggleX = growsLeft ? -10 : nodeWidth + 10;
             const toggleBtn = document.createElementNS("http://www.w3.org/2000/svg", "circle");
-            toggleBtn.setAttribute("cx", (nodeWidth + 10).toString());
+            toggleBtn.setAttribute("cx", toggleX.toString());
             toggleBtn.setAttribute("cy", "20");
             toggleBtn.setAttribute("r", "8");
             toggleBtn.classList.add("mindmap-node-toggle");
             nodeG.appendChild(toggleBtn);
 
             const toggleSymbol = document.createElementNS("http://www.w3.org/2000/svg", "text");
-            toggleSymbol.setAttribute("x", (nodeWidth + 10).toString());
+            toggleSymbol.setAttribute("x", toggleX.toString());
             toggleSymbol.setAttribute("y", "23.5");
             toggleSymbol.setAttribute("text-anchor", "middle");
             toggleSymbol.classList.add("mindmap-node-toggle-symbol");
@@ -2108,7 +2503,7 @@ class MindMapView extends TextFileView {
 
             // Add hit area for easier clicking
             const hitArea = document.createElementNS("http://www.w3.org/2000/svg", "circle");
-            hitArea.setAttribute("cx", (nodeWidth + 10).toString());
+            hitArea.setAttribute("cx", toggleX.toString());
             hitArea.setAttribute("cy", "20");
             hitArea.setAttribute("r", "15"); // Larger hit area
             hitArea.setAttribute("fill", "white");
@@ -2338,14 +2733,16 @@ class MindMapView extends TextFileView {
         nodeG.appendChild(text);
 
         // --- Drag Indicators (Always present but hidden) ---
-        // Child indicator
+        // Child indicator (outward side of the branch)
+        const growsLeft = this.isRadialLayout() && this.getBranchSide(node) === "left";
         const childPath = document.createElementNS("http://www.w3.org/2000/svg", "path");
         const r = 24;
-        const cx = nodeWidth - 20;
+        const cx = growsLeft ? 20 : nodeWidth - 20;
         const cy = 20;
-        const startAngle = -Math.PI / 12;
-        const endAngle = Math.PI / 12;
-        const d = `M ${cx + r * Math.cos(startAngle)},${cy + r * Math.sin(startAngle)} A ${r},${r} 0 0 1 ${cx + r * Math.cos(endAngle)},${cy + r * Math.sin(endAngle)}`;
+        const startAngle = growsLeft ? Math.PI - Math.PI / 12 : -Math.PI / 12;
+        const endAngle = growsLeft ? Math.PI + Math.PI / 12 : Math.PI / 12;
+        const sweep = growsLeft ? 0 : 1;
+        const d = `M ${cx + r * Math.cos(startAngle)},${cy + r * Math.sin(startAngle)} A ${r},${r} 0 0 ${sweep} ${cx + r * Math.cos(endAngle)},${cy + r * Math.sin(endAngle)}`;
         childPath.setAttribute("d", d);
         childPath.setAttribute("fill", "none");
         childPath.classList.add("drag-indicator-line", "indicator-child");
@@ -2543,10 +2940,9 @@ class MindMapView extends TextFileView {
     }
 
     async onClose() {
-        if (this.boundWindowKeyDown) {
-            window.removeEventListener("keydown", this.boundWindowKeyDown, false);
-            this.boundWindowKeyDown = null;
-        }
+        if (this.boundWindowKeyDown) window.removeEventListener("keydown", this.boundWindowKeyDown, false);
+        this.boundWindowKeyDown = null;
+        this.headerGuardKeyDown = null;
         this.teardownEditInput();
     }
 
@@ -2595,6 +2991,7 @@ class MindMapView extends TextFileView {
             new Notice(`Error creating note: ${e.message}`);
         }
     }
+
     renameFile() {
         if (!this.file) return;
         new RenameModal(this.app, this.file.basename, (newName) => {
@@ -2639,7 +3036,7 @@ class NoteSuggestModal extends FuzzySuggestModal<TFile> {
     }
 
     getItems(): TFile[] {
-        return this.app.vault.getMarkdownFiles();
+        return collectMarkdownFilesInFolder(this.app.vault.getRoot());
     }
 
     getItemText(file: TFile): string {
@@ -2660,7 +3057,7 @@ class FileSuggestModal extends FuzzySuggestModal<TFile> {
     }
 
     getItems(): TFile[] {
-        return this.app.vault.getMarkdownFiles();
+        return collectMarkdownFilesInFolder(this.app.vault.getRoot());
     }
 
     getItemText(file: TFile): string {
