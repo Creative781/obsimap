@@ -68,6 +68,7 @@ MIT
 
 Your support helps updates faster.
 
+- ☑ **Sidebar paint bleed fix** (2026-07-18) — Clip the map view so nodes and selection glow no longer show through adjacent panes.
 - ☑ **Radial mind map** (2026-07-18) — Choose outline or radial layout in settings; place topics on both the left and right of the center node.
 
 ### Coming next
@@ -144,6 +145,7 @@ MIT
 
 여러분의 후원이 업데이트를 더 빠르게 하는 데 도움이 됩니다.
 
+- ☑ **사이드바 잔상 수정** (2026-07-18) — 맵 뷰를 클리핑해 노드·선택 glow가 옆 패널에 비치지 않도록 수정.
 - ☑ **방사형 마인드맵** (2026-07-18) — 설정에서 목록형·방사형을 고를 수 있고, 중심 주제 기준으로 왼쪽·오른쪽에 노드를 배치합니다.
 
 ### 다음 업데이트 예고

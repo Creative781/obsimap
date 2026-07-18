@@ -78,6 +78,17 @@ body .tree-item-self[data-path$=".mindmap"] .tree-item-icon::before {
     width: 100%;
     overflow: hidden;
     background-color: var(--background-primary);
+    /* Keep SVG paint (filters/nodes) from bleeding into adjacent Obsidian panes */
+    isolation: isolate;
+    contain: paint;
+    clip-path: inset(0);
+}
+
+/* Obsidian leaf wrappers can otherwise let SVG overflow into sidebars */
+.workspace-leaf-content[data-type="obsimap-view"],
+.workspace-leaf-content[data-type="obsimap-view"] .view-content {
+    overflow: hidden;
+    isolation: isolate;
 }
 
 /* Floating Controls - Premium Collapsible Design */
@@ -160,6 +171,8 @@ body .tree-item-self[data-path$=".mindmap"] .tree-item-icon::before {
     width: 100%;
     height: 100%;
     cursor: default;
+    overflow: hidden;
+    display: block;
 }
 
 /* Background */
@@ -169,6 +182,9 @@ body .tree-item-self[data-path$=".mindmap"] .tree-item-icon::before {
     position: relative;
     outline: none;
     background-color: var(--background-primary);
+    isolation: isolate;
+    contain: paint;
+    clip-path: inset(0);
 }
 
 /* Base Node & Connection */
@@ -188,7 +204,6 @@ body .tree-item-self[data-path$=".mindmap"] .tree-item-icon::before {
 .mindmap-node-rect.drag-over {
     stroke-width: 5;
     stroke-dasharray: 5, 5;
-    filter: drop-shadow(0 0 10px var(--interactive-accent));
 }
 
 /* Internal Drag Target State */
@@ -204,7 +219,6 @@ body .tree-item-self[data-path$=".mindmap"] .tree-item-icon::before {
     stroke: var(--interactive-accent);
     stroke-width: 4;
     stroke-dasharray: 4, 2;
-    filter: drop-shadow(0 0 8px var(--interactive-accent));
 }
 
 .drag-indicator-line {
@@ -216,8 +230,6 @@ body .tree-item-self[data-path$=".mindmap"] .tree-item-icon::before {
     transition: opacity 0.1s ease-in-out;
     /* Faster transition */
     pointer-events: none;
-    filter: drop-shadow(0 0 2px var(--background-primary));
-    /* Contrast against node */
 }
 
 .mind-map-view .drag-indicator-line.is-visible {
@@ -227,7 +239,7 @@ body .tree-item-self[data-path$=".mindmap"] .tree-item-icon::before {
 
 .mindmap-ghost-node {
     pointer-events: none;
-    filter: drop-shadow(0 5px 15px rgba(0, 0, 0, 0.3));
+    opacity: 0.85;
 }
 
 /* Node Collapse/Expand Toggle Styles */
@@ -335,7 +347,7 @@ body .tree-item-self[data-path$=".mindmap"] .tree-item-icon::before {
     fill: #f43f5e;
     /* Rose */
     stroke: #e11d48;
-    filter: drop-shadow(0 0 8px #f43f5e);
+    stroke-width: 3;
 }
 
 .theme-vibrant .mindmap-connection {
@@ -352,8 +364,8 @@ body .tree-item-self[data-path$=".mindmap"] .tree-item-icon::before {
 .theme-dark .theme-vibrant .mindmap-node-rect.is-selected {
     fill: #ec4899;
     /* Pink */
-    stroke: #db2777;
-    filter: drop-shadow(0 0 8px #ec4899);
+    stroke: #f9a8d4;
+    stroke-width: 3;
 }
 
 /* --- Theme: Contrast (Softer High Contrast) --- */

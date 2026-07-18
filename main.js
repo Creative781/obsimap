@@ -640,6 +640,7 @@ ${jsonData}
     this.svg = document.createElementNS("http://www.w3.org/2000/svg", "svg");
     this.svg.setAttribute("width", "100%");
     this.svg.setAttribute("height", "100%");
+    this.svg.setAttribute("overflow", "hidden");
     this.svg.classList.add("mindmap-svg");
     svgContainer.appendChild(this.svg);
     setTimeout(() => {
