@@ -64,8 +64,6 @@ body .tree-item-self[data-path$=".mindmap"] .tree-item-icon::before {
     max-width: 300px;
     word-wrap: break-word;
     box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
-    backdrop-filter: blur(4px);
-    /* Premium blur effect */
     opacity: 0.95;
     line-height: 1.4;
 }
@@ -78,23 +76,7 @@ body .tree-item-self[data-path$=".mindmap"] .tree-item-icon::before {
     width: 100%;
     overflow: hidden;
     background-color: var(--background-primary);
-    /* Keep SVG paint from bleeding into adjacent Obsidian panes (esp. while panning) */
-    isolation: isolate;
-    contain: paint;
     position: relative;
-    z-index: 0;
-    transform: translateZ(0);
-}
-
-/* Obsidian leaf wrappers: force a hard paint boundary around the map view */
-.workspace-leaf-content[data-type="obsimap-view"],
-.workspace-leaf-content[data-type="obsimap-view"] .view-content {
-    overflow: hidden;
-    isolation: isolate;
-    contain: paint;
-    position: relative;
-    z-index: 0;
-    transform: translateZ(0);
 }
 
 /* Floating Controls - Premium Collapsible Design */
@@ -105,15 +87,13 @@ body .tree-item-self[data-path$=".mindmap"] .tree-item-icon::before {
     display: flex;
     align-items: center;
     background-color: var(--background-secondary);
-    opacity: 0.95;
-    backdrop-filter: blur(12px);
     border: 1px solid var(--divider-color);
     border-radius: 14px;
     padding: 6px;
     gap: 0;
     box-shadow: 0 8px 32px rgba(0, 0, 0, 0.4);
     z-index: 100;
-    transition: all 0.4s cubic-bezier(0.4, 0, 0.2, 1);
+    transition: max-width 0.4s cubic-bezier(0.4, 0, 0.2, 1), padding 0.4s cubic-bezier(0.4, 0, 0.2, 1);
     overflow: hidden;
     max-width: 500px;
 }
@@ -122,7 +102,6 @@ body .tree-item-self[data-path$=".mindmap"] .tree-item-icon::before {
     max-width: 48px;
     padding: 6px;
     background-color: var(--background-secondary);
-    opacity: 0.8;
 }
 
 .toolbar-toggle-btn {
@@ -179,9 +158,6 @@ body .tree-item-self[data-path$=".mindmap"] .tree-item-icon::before {
     cursor: default;
     overflow: hidden;
     display: block;
-    position: relative;
-    z-index: 0;
-    transform: translateZ(0);
 }
 
 /* Background */
@@ -191,11 +167,7 @@ body .tree-item-self[data-path$=".mindmap"] .tree-item-icon::before {
     position: relative;
     outline: none;
     background-color: var(--background-primary);
-    isolation: isolate;
-    contain: paint;
     cursor: default;
-    z-index: 0;
-    transform: translateZ(0);
 }
 
 .mindmap-svg-container.is-cursor-grab {
