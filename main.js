@@ -608,6 +608,9 @@ var _MindMapView = class extends import_obsidian.TextFileView {
     this.viewportResizeObserver = null;
     this.viewportResizeRaf = null;
     this.svgContainerEl = null;
+    /** SVG clip rect matching the visible map pane (clips pan/zoom content). */
+    this.viewportClipRect = null;
+    this.viewportClipId = "";
     this.boundWindowKeyDown = null;
     this.headerGuardKeyDown = null;
     /** When dropping onto root as child in radial mode, prefer this side. */
@@ -723,11 +726,27 @@ ${jsonData}
     this.svg.setAttribute("overflow", "hidden");
     this.svg.classList.add("mindmap-svg");
     svgContainer.appendChild(this.svg);
+    this.viewportClipId = `obsimap-clip-${this.leaf.id}-${Date.now()}`;
+    const defs = document.createElementNS("http://www.w3.org/2000/svg", "defs");
+    const clipPath = document.createElementNS("http://www.w3.org/2000/svg", "clipPath");
+    clipPath.setAttribute("id", this.viewportClipId);
+    this.viewportClipRect = document.createElementNS("http://www.w3.org/2000/svg", "rect");
+    this.viewportClipRect.setAttribute("x", "0");
+    this.viewportClipRect.setAttribute("y", "0");
+    this.viewportClipRect.setAttribute("width", "1");
+    this.viewportClipRect.setAttribute("height", "1");
+    clipPath.appendChild(this.viewportClipRect);
+    defs.appendChild(clipPath);
+    this.svg.appendChild(defs);
+    const clippedRoot = document.createElementNS("http://www.w3.org/2000/svg", "g");
+    clippedRoot.setAttribute("clip-path", `url(#${this.viewportClipId})`);
+    this.svg.appendChild(clippedRoot);
+    this.g = document.createElementNS("http://www.w3.org/2000/svg", "g");
+    clippedRoot.appendChild(this.g);
+    this.syncViewportClip();
     window.setTimeout(() => {
       svgContainer.focus();
     }, 100);
-    this.g = document.createElementNS("http://www.w3.org/2000/svg", "g");
-    this.svg.appendChild(this.g);
     this.registerDomEvent(svgContainer, "pointerdown", (e) => {
       if (e.button !== 0 && e.button !== 1)
         return;
@@ -840,6 +859,7 @@ ${jsonData}
         window.cancelAnimationFrame(this.viewportResizeRaf);
       this.viewportResizeRaf = window.requestAnimationFrame(() => {
         this.viewportResizeRaf = null;
+        this.syncViewportClip();
         if (this.selectedNodeId)
           this.scrollSelectionIntoView();
       });
@@ -853,6 +873,16 @@ ${jsonData}
       this.viewportResizeObserver = null;
     });
     this.render();
+  }
+  /** Keep the SVG clip rect matched to the visible map pane size. */
+  syncViewportClip() {
+    var _a, _b, _c, _d;
+    if (!this.viewportClipRect)
+      return;
+    const w = ((_a = this.svg) == null ? void 0 : _a.clientWidth) || ((_b = this.svgContainerEl) == null ? void 0 : _b.clientWidth) || 0;
+    const h = ((_c = this.svg) == null ? void 0 : _c.clientHeight) || ((_d = this.svgContainerEl) == null ? void 0 : _d.clientHeight) || 0;
+    this.viewportClipRect.setAttribute("width", String(Math.max(1, Math.floor(w))));
+    this.viewportClipRect.setAttribute("height", String(Math.max(1, Math.floor(h))));
   }
   createControlButton(container, iconId, tooltip, onClick) {
     const btn = container.createEl("div", { cls: "mindmap-control-btn" });
@@ -873,6 +903,7 @@ ${jsonData}
     svgContainer.classList.toggle("is-cursor-grabbing", mode === "grabbing");
   }
   updateTransform() {
+    this.syncViewportClip();
     this.g.setAttribute("transform", `translate(${this.panX}, ${this.panY}) scale(${this.zoom})`);
     this.repositionActiveEditInput();
   }

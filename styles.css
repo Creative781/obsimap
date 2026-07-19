@@ -76,18 +76,25 @@ body .tree-item-self[data-path$=".mindmap"] .tree-item-icon::before {
     flex-direction: column;
     height: 100%;
     width: 100%;
-    overflow: hidden;
+    overflow: hidden !important;
     background-color: var(--background-primary);
-    /* Keep SVG paint (filters/nodes) from bleeding into adjacent Obsidian panes */
+    /* Keep SVG paint from bleeding into adjacent Obsidian panes (esp. while panning) */
     isolation: isolate;
     contain: paint;
+    position: relative;
+    z-index: 0;
+    transform: translateZ(0);
 }
 
-/* Obsidian leaf wrappers can otherwise let SVG overflow into sidebars */
+/* Obsidian leaf wrappers: force a hard paint boundary around the map view */
 .workspace-leaf-content[data-type="obsimap-view"],
 .workspace-leaf-content[data-type="obsimap-view"] .view-content {
-    overflow: hidden;
+    overflow: hidden !important;
     isolation: isolate;
+    contain: paint;
+    position: relative;
+    z-index: 0;
+    transform: translateZ(0);
 }
 
 /* Floating Controls - Premium Collapsible Design */
@@ -170,20 +177,25 @@ body .tree-item-self[data-path$=".mindmap"] .tree-item-icon::before {
     width: 100%;
     height: 100%;
     cursor: default;
-    overflow: hidden;
+    overflow: hidden !important;
     display: block;
+    position: relative;
+    z-index: 0;
+    transform: translateZ(0);
 }
 
 /* Background */
 .mindmap-svg-container {
     flex-grow: 1;
-    overflow: hidden;
+    overflow: hidden !important;
     position: relative;
     outline: none;
     background-color: var(--background-primary);
     isolation: isolate;
     contain: paint;
     cursor: default;
+    z-index: 0;
+    transform: translateZ(0);
 }
 
 .mindmap-svg-container.is-cursor-grab {

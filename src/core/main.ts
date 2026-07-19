@@ -21,7 +21,6 @@ import {
     DEFAULT_SETTINGS,
     MindMapNode
 } from "../shared/types";
-
 /** Narrow shape of Obsidian's internal (undocumented) `app.dragManager`. */
 type DragMgr = {
     viewDragContext?: { file?: unknown };
@@ -721,6 +720,9 @@ class MindMapView extends TextFileView {
     private viewportResizeObserver: ResizeObserver | null = null;
     private viewportResizeRaf: number | null = null;
     private svgContainerEl: HTMLElement | null = null;
+    /** SVG clip rect matching the visible map pane (clips pan/zoom content). */
+    private viewportClipRect: SVGRectElement | null = null;
+    private viewportClipId = "";
     private boundWindowKeyDown: ((e: KeyboardEvent) => void) | null = null;
     private headerGuardKeyDown: ((e: KeyboardEvent) => void) | null = null;
     private static readonly LONG_PRESS_MS = 500;
@@ -850,6 +852,7 @@ class MindMapView extends TextFileView {
         const btnContainer = controls.createEl("div", { cls: "toolbar-buttons" });
         this.createControlButton(btnContainer, "lucide-file-input", "Import markdown", () => void this.promptImport());
         this.createControlButton(btnContainer, "lucide-file-output", "Export markdown", () => void this.exportMarkdown());
+
         this.createControlButton(btnContainer, "lucide-file-text", "Full note", () => void this.exportFullNote());
 
         this.svg = document.createElementNS("http://www.w3.org/2000/svg", "svg");
@@ -859,15 +862,35 @@ class MindMapView extends TextFileView {
         this.svg.classList.add("mindmap-svg");
         svgContainer.appendChild(this.svg);
 
+        // Clip map content to the SVG viewport (CSS overflow alone fails while panning
+        // transformed SVG groups across Obsidian sidebars).
+        this.viewportClipId = `obsimap-clip-${this.leaf.id}-${Date.now()}`;
+        const defs = document.createElementNS("http://www.w3.org/2000/svg", "defs");
+        const clipPath = document.createElementNS("http://www.w3.org/2000/svg", "clipPath");
+        clipPath.setAttribute("id", this.viewportClipId);
+        this.viewportClipRect = document.createElementNS("http://www.w3.org/2000/svg", "rect");
+        this.viewportClipRect.setAttribute("x", "0");
+        this.viewportClipRect.setAttribute("y", "0");
+        this.viewportClipRect.setAttribute("width", "1");
+        this.viewportClipRect.setAttribute("height", "1");
+        clipPath.appendChild(this.viewportClipRect);
+        defs.appendChild(clipPath);
+        this.svg.appendChild(defs);
+
+        const clippedRoot = document.createElementNS("http://www.w3.org/2000/svg", "g");
+        clippedRoot.setAttribute("clip-path", `url(#${this.viewportClipId})`);
+        this.svg.appendChild(clippedRoot);
+
+        this.g = document.createElementNS("http://www.w3.org/2000/svg", "g");
+        clippedRoot.appendChild(this.g);
+        this.syncViewportClip();
+
         // Auto-focus the container so keyboard navigation works immediately.
         // No inline title rename — Obsidian/our modal handles renaming so focus
         // never leaves the map pane unexpectedly.
         window.setTimeout(() => {
             svgContainer.focus();
         }, 100);
-
-        this.g = document.createElementNS("http://www.w3.org/2000/svg", "g");
-        this.svg.appendChild(this.g);
 
         // Ensure clicking in the map pane focuses it.
         this.registerDomEvent(svgContainer, "pointerdown", (e: PointerEvent) => {
@@ -985,6 +1008,7 @@ class MindMapView extends TextFileView {
             if (this.viewportResizeRaf !== null) window.cancelAnimationFrame(this.viewportResizeRaf);
             this.viewportResizeRaf = window.requestAnimationFrame(() => {
                 this.viewportResizeRaf = null;
+                this.syncViewportClip();
                 if (this.selectedNodeId) this.scrollSelectionIntoView();
             });
         });
@@ -996,6 +1020,21 @@ class MindMapView extends TextFileView {
         });
 
         this.render();
+    }
+
+    /** Keep the SVG clip rect matched to the visible map pane size. */
+    private syncViewportClip(): void {
+        if (!this.viewportClipRect) return;
+        const w =
+            this.svg?.clientWidth ||
+            this.svgContainerEl?.clientWidth ||
+            0;
+        const h =
+            this.svg?.clientHeight ||
+            this.svgContainerEl?.clientHeight ||
+            0;
+        this.viewportClipRect.setAttribute("width", String(Math.max(1, Math.floor(w))));
+        this.viewportClipRect.setAttribute("height", String(Math.max(1, Math.floor(h))));
     }
 
     createControlButton(container: HTMLElement, iconId: string, tooltip: string, onClick: () => void): HTMLElement {
@@ -1018,6 +1057,7 @@ class MindMapView extends TextFileView {
     }
 
     updateTransform() {
+        this.syncViewportClip();
         this.g.setAttribute("transform", `translate(${this.panX}, ${this.panY}) scale(${this.zoom})`);
         this.repositionActiveEditInput();
     }
@@ -1744,6 +1784,7 @@ class MindMapView extends TextFileView {
         });
         return md;
     }
+
 
     addChildNode(parentId: string, text?: string) {
         const isInitial = text === undefined;
