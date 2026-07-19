@@ -10,6 +10,7 @@ import {
     TFile,
     TFolder,
     Setting,
+    TextComponent,
     WorkspaceLeaf,
     App,
     MetadataCache,
@@ -374,30 +375,27 @@ class MindMapSettingTab extends PluginSettingTab {
         });
     }
 
-    /** Re-renders the settings tab (compatible with minAppVersion below 1.13). */
-    private refresh(): void {
-        this.display();
-    }
-
     private buildExportFolderSetting(setting: Setting): void {
+        let textComp: TextComponent;
         setting
             .setName("Export folder")
             .setDesc("Default folder for exported files and new notes.")
-            .addText((text) =>
+            .addText((text) => {
+                textComp = text;
                 text
                     .setPlaceholder("Example: mind-maps/exports")
                     .setValue(this.plugin.settings.exportFolder)
                     .onChange((value) => {
                         this.plugin.settings.exportFolder = value;
                         void this.plugin.saveSettings();
-                    })
-            )
+                    });
+            })
             .addButton((btn) =>
                 btn.setButtonText("Select folder").onClick(() => {
                     new FolderSuggestModal(this.app, (folder) => {
                         this.plugin.settings.exportFolder = folder.path;
                         void this.plugin.saveSettings();
-                        this.refresh();
+                        textComp.setValue(folder.path);
                     }).open();
                 })
             );
@@ -524,6 +522,68 @@ class MindMapSettingTab extends PluginSettingTab {
         ["Demote node (Shift+move right)", "demote"],
         ["Fold/unfold subtree", "toggleCollapse"],
     ];
+
+    /**
+     * Obsidian 1.13+ settings search index. Keep `display()` for older versions (Path B).
+     * Do not call `PluginSettingTab.update()` — it requires minAppVersion 1.13+.
+     */
+    getSettingDefinitions() {
+        const searchAliases = ["Simple Mindmap", "ObsiMap", "obsimap", "mindmap", "mind map"];
+        return [
+            {
+                name: "Export folder",
+                desc: "Default folder for exported files and new notes.",
+                aliases: searchAliases,
+                render: (setting: Setting) => this.buildExportFolderSetting(setting),
+            },
+            {
+                name: "Theme",
+                desc: "Select a color theme for your mindmap nodes.",
+                aliases: searchAliases,
+                render: (setting: Setting) => this.buildThemeSetting(setting),
+            },
+            {
+                name: "Mind map layout",
+                desc: "Outline grows to the right like a list. Radial places root topics on both left and right (auto-balanced).",
+                aliases: searchAliases,
+                render: (setting: Setting) => this.buildLayoutModeSetting(setting),
+            },
+            {
+                name: "Strip metadata from full note",
+                desc: "Automatically remove YAML frontmatter/properties when exporting content.",
+                aliases: searchAliases,
+                control: { type: "toggle", key: "stripMetadata" },
+            },
+            {
+                name: "Show hover preview",
+                desc: "Show the full node text when hovering over truncated nodes.",
+                aliases: searchAliases,
+                control: { type: "toggle", key: "showHoverPreview" },
+            },
+            {
+                name: "Max node text length",
+                desc: "The maximum number of characters to show in a node before truncating with '...'.",
+                aliases: searchAliases,
+                render: (setting: Setting) => this.buildMaxNodeLengthSetting(setting),
+            },
+            {
+                name: "Node style",
+                desc: "Choose the visual appearance of nodes.",
+                aliases: searchAliases,
+                render: (setting: Setting) => this.buildNodeStyleSetting(setting),
+            },
+            ...MindMapSettingTab.OPS_HOTKEYS.map(([name, key]) => ({
+                name,
+                aliases: searchAliases,
+                render: (setting: Setting) => this.buildHotkeySetting(setting, name, key),
+            })),
+            ...MindMapSettingTab.MOVE_HOTKEYS.map(([name, key]) => ({
+                name,
+                aliases: searchAliases,
+                render: (setting: Setting) => this.buildHotkeySetting(setting, name, key),
+            })),
+        ];
+    }
 }
 
 class FolderSuggestModal extends FuzzySuggestModal<TFolder> {

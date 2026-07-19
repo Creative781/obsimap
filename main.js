@@ -350,22 +350,20 @@ var _MindMapSettingTab = class extends import_obsidian.PluginSettingTab {
       cls: "obsimap-social-link"
     });
   }
-  /** Re-renders the settings tab (compatible with minAppVersion below 1.13). */
-  refresh() {
-    this.display();
-  }
   buildExportFolderSetting(setting) {
-    setting.setName("Export folder").setDesc("Default folder for exported files and new notes.").addText(
-      (text) => text.setPlaceholder("Example: mind-maps/exports").setValue(this.plugin.settings.exportFolder).onChange((value) => {
+    let textComp;
+    setting.setName("Export folder").setDesc("Default folder for exported files and new notes.").addText((text) => {
+      textComp = text;
+      text.setPlaceholder("Example: mind-maps/exports").setValue(this.plugin.settings.exportFolder).onChange((value) => {
         this.plugin.settings.exportFolder = value;
         void this.plugin.saveSettings();
-      })
-    ).addButton(
+      });
+    }).addButton(
       (btn) => btn.setButtonText("Select folder").onClick(() => {
         new FolderSuggestModal(this.app, (folder) => {
           this.plugin.settings.exportFolder = folder.path;
           void this.plugin.saveSettings();
-          this.refresh();
+          textComp.setValue(folder.path);
         }).open();
       })
     );
@@ -450,6 +448,67 @@ var _MindMapSettingTab = class extends import_obsidian.PluginSettingTab {
         void this.plugin.saveSettings();
       });
     });
+  }
+  /**
+   * Obsidian 1.13+ settings search index. Keep `display()` for older versions (Path B).
+   * Do not call `PluginSettingTab.update()` — it requires minAppVersion 1.13+.
+   */
+  getSettingDefinitions() {
+    const searchAliases = ["Simple Mindmap", "ObsiMap", "obsimap", "mindmap", "mind map"];
+    return [
+      {
+        name: "Export folder",
+        desc: "Default folder for exported files and new notes.",
+        aliases: searchAliases,
+        render: (setting) => this.buildExportFolderSetting(setting)
+      },
+      {
+        name: "Theme",
+        desc: "Select a color theme for your mindmap nodes.",
+        aliases: searchAliases,
+        render: (setting) => this.buildThemeSetting(setting)
+      },
+      {
+        name: "Mind map layout",
+        desc: "Outline grows to the right like a list. Radial places root topics on both left and right (auto-balanced).",
+        aliases: searchAliases,
+        render: (setting) => this.buildLayoutModeSetting(setting)
+      },
+      {
+        name: "Strip metadata from full note",
+        desc: "Automatically remove YAML frontmatter/properties when exporting content.",
+        aliases: searchAliases,
+        control: { type: "toggle", key: "stripMetadata" }
+      },
+      {
+        name: "Show hover preview",
+        desc: "Show the full node text when hovering over truncated nodes.",
+        aliases: searchAliases,
+        control: { type: "toggle", key: "showHoverPreview" }
+      },
+      {
+        name: "Max node text length",
+        desc: "The maximum number of characters to show in a node before truncating with '...'.",
+        aliases: searchAliases,
+        render: (setting) => this.buildMaxNodeLengthSetting(setting)
+      },
+      {
+        name: "Node style",
+        desc: "Choose the visual appearance of nodes.",
+        aliases: searchAliases,
+        render: (setting) => this.buildNodeStyleSetting(setting)
+      },
+      ..._MindMapSettingTab.OPS_HOTKEYS.map(([name, key]) => ({
+        name,
+        aliases: searchAliases,
+        render: (setting) => this.buildHotkeySetting(setting, name, key)
+      })),
+      ..._MindMapSettingTab.MOVE_HOTKEYS.map(([name, key]) => ({
+        name,
+        aliases: searchAliases,
+        render: (setting) => this.buildHotkeySetting(setting, name, key)
+      }))
+    ];
   }
 };
 var MindMapSettingTab = _MindMapSettingTab;
