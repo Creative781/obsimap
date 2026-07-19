@@ -451,68 +451,6 @@ var _MindMapSettingTab = class extends import_obsidian.PluginSettingTab {
       });
     });
   }
-  /**
-   * Declarative settings (Obsidian 1.13+): describes the same searchable settings as
-   * `display()` above, so they are indexed and findable in global settings search.
-   * On older Obsidian, `getSettingDefinitions()` is unused and `display()` renders as before.
-   * Settings with side effects (theme refresh, layout re-render, folder picker, hotkeys)
-   * use `render` callbacks that reuse the same builder methods as `display()`.
-   */
-  getSettingDefinitions() {
-    return [
-      {
-        name: "Export folder",
-        desc: "Default folder for exported files and new notes.",
-        render: (setting) => this.buildExportFolderSetting(setting)
-      },
-      {
-        name: "Theme",
-        desc: "Select a color theme for your mindmap nodes.",
-        render: (setting) => this.buildThemeSetting(setting)
-      },
-      {
-        name: "Mind map layout",
-        desc: "Outline grows to the right like a list. Radial places root topics on both left and right (auto-balanced).",
-        render: (setting) => this.buildLayoutModeSetting(setting)
-      },
-      {
-        name: "Strip metadata from full note",
-        desc: "Automatically remove YAML frontmatter/properties when exporting content.",
-        control: { type: "toggle", key: "stripMetadata" }
-      },
-      {
-        name: "Show hover preview",
-        desc: "Show the full node text when hovering over truncated nodes.",
-        control: { type: "toggle", key: "showHoverPreview" }
-      },
-      {
-        name: "Max node text length",
-        desc: "The maximum number of characters to show in a node before truncating with '...'.",
-        render: (setting) => this.buildMaxNodeLengthSetting(setting)
-      },
-      {
-        type: "group",
-        heading: "Node operations",
-        items: _MindMapSettingTab.OPS_HOTKEYS.map(([name, key]) => ({
-          name,
-          render: (setting) => this.buildHotkeySetting(setting, name, key)
-        }))
-      },
-      {
-        name: "Node style",
-        desc: "Choose the visual appearance of nodes.",
-        render: (setting) => this.buildNodeStyleSetting(setting)
-      },
-      {
-        type: "group",
-        heading: "Navigation and movement",
-        items: _MindMapSettingTab.MOVE_HOTKEYS.map(([name, key]) => ({
-          name,
-          render: (setting) => this.buildHotkeySetting(setting, name, key)
-        }))
-      }
-    ];
-  }
 };
 var MindMapSettingTab = _MindMapSettingTab;
 MindMapSettingTab.OPS_HOTKEYS = [

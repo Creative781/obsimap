@@ -5,6 +5,12 @@ All notable changes to this project are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.1.6] - 2026-07-19
+
+### Fixed
+
+- Remove incomplete `getSettingDefinitions()` so Obsidian settings search again finds **Simple Mindmap** via the classic `display()` settings tab (restores pre-1.1.2 behavior on current Obsidian).
+
 ## [1.1.5] - 2026-07-19
 
 ### Fixed

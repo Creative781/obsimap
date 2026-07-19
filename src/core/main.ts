@@ -283,38 +283,6 @@ export default class MindMapPlugin extends Plugin {
     }
 }
 
-/**
- * Minimal local typings for Obsidian's declarative settings API
- * (`PluginSettingTab.getSettingDefinitions()`, added in Obsidian 1.13.0).
- * The installed `obsidian` package typings do not yet declare this API,
- * so we describe only the shapes this plugin actually returns.
- */
-type SettingDefinitionControl =
-    | { type: "toggle"; key: string; defaultValue?: boolean }
-    | { type: "text"; key: string; placeholder?: string; defaultValue?: string }
-    | { type: "textarea"; key: string; placeholder?: string; rows?: number; defaultValue?: string }
-    | { type: "number"; key: string; min?: number; max?: number; step?: number; placeholder?: string; defaultValue?: number }
-    | { type: "slider"; key: string; min: number; max: number; step: number; defaultValue?: number }
-    | { type: "dropdown"; key: string; options: Record<string, string>; defaultValue?: string }
-    | { type: "folder"; key: string; includeRoot?: boolean; placeholder?: string; defaultValue?: string }
-    | { type: "color"; key: string; defaultValue?: string };
-
-interface SettingDefinitionItem {
-    name?: string;
-    desc?: string;
-    control?: SettingDefinitionControl;
-    render?: (setting: Setting) => void | (() => void);
-    action?: (index: number) => void;
-}
-
-interface SettingDefinitionGroup {
-    type: "group";
-    heading?: string;
-    items: SettingDefinitionEntry[];
-}
-
-type SettingDefinitionEntry = SettingDefinitionItem | SettingDefinitionGroup;
-
 class MindMapSettingTab extends PluginSettingTab {
     plugin: MindMapPlugin;
 
@@ -556,69 +524,6 @@ class MindMapSettingTab extends PluginSettingTab {
         ["Demote node (Shift+move right)", "demote"],
         ["Fold/unfold subtree", "toggleCollapse"],
     ];
-
-    /**
-     * Declarative settings (Obsidian 1.13+): describes the same searchable settings as
-     * `display()` above, so they are indexed and findable in global settings search.
-     * On older Obsidian, `getSettingDefinitions()` is unused and `display()` renders as before.
-     * Settings with side effects (theme refresh, layout re-render, folder picker, hotkeys)
-     * use `render` callbacks that reuse the same builder methods as `display()`.
-     */
-    getSettingDefinitions(): SettingDefinitionEntry[] {
-        return [
-            {
-                name: "Export folder",
-                desc: "Default folder for exported files and new notes.",
-                render: (setting) => this.buildExportFolderSetting(setting),
-            },
-            {
-                name: "Theme",
-                desc: "Select a color theme for your mindmap nodes.",
-                render: (setting) => this.buildThemeSetting(setting),
-            },
-            {
-                name: "Mind map layout",
-                desc: "Outline grows to the right like a list. Radial places root topics on both left and right (auto-balanced).",
-                render: (setting) => this.buildLayoutModeSetting(setting),
-            },
-            {
-                name: "Strip metadata from full note",
-                desc: "Automatically remove YAML frontmatter/properties when exporting content.",
-                control: { type: "toggle", key: "stripMetadata" },
-            },
-            {
-                name: "Show hover preview",
-                desc: "Show the full node text when hovering over truncated nodes.",
-                control: { type: "toggle", key: "showHoverPreview" },
-            },
-            {
-                name: "Max node text length",
-                desc: "The maximum number of characters to show in a node before truncating with '...'.",
-                render: (setting) => this.buildMaxNodeLengthSetting(setting),
-            },
-            {
-                type: "group",
-                heading: "Node operations",
-                items: MindMapSettingTab.OPS_HOTKEYS.map(([name, key]) => ({
-                    name,
-                    render: (setting: Setting) => this.buildHotkeySetting(setting, name, key),
-                })),
-            },
-            {
-                name: "Node style",
-                desc: "Choose the visual appearance of nodes.",
-                render: (setting) => this.buildNodeStyleSetting(setting),
-            },
-            {
-                type: "group",
-                heading: "Navigation and movement",
-                items: MindMapSettingTab.MOVE_HOTKEYS.map(([name, key]) => ({
-                    name,
-                    render: (setting: Setting) => this.buildHotkeySetting(setting, name, key),
-                })),
-            },
-        ];
-    }
 }
 
 class FolderSuggestModal extends FuzzySuggestModal<TFolder> {
