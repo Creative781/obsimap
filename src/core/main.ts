@@ -22,6 +22,13 @@ import {
     MindMapNode
 } from "../shared/types";
 
+/** Narrow shape of Obsidian's internal (undocumented) `app.dragManager`. */
+type DragMgr = {
+    viewDragContext?: { file?: unknown };
+    activeDrag?: { file?: unknown };
+    draggable?: { file?: unknown };
+};
+
 /** Collect folders by walking the in-memory vault tree (avoids getAllLoadedFiles). */
 function collectVaultFolders(root: TFolder): TFolder[] {
     const folders: TFolder[] = [];
@@ -33,6 +40,19 @@ function collectVaultFolders(root: TFolder): TFolder[] {
     };
     walk(root);
     return folders;
+}
+
+/** Type-safe `JSON.parse` for persisted mindmap state; returns null on malformed input. */
+function parseMindMapJson(json: string): { root: MindMapNode } | null {
+    try {
+        const parsed: unknown = JSON.parse(json);
+        if (parsed && typeof parsed === "object" && "root" in parsed) {
+            return parsed as { root: MindMapNode };
+        }
+        return null;
+    } catch {
+        return null;
+    }
 }
 
 /** Collect markdown files under a folder via tree walk (avoids getMarkdownFiles). */
@@ -141,26 +161,26 @@ export default class MindMapPlugin extends Plugin {
     }
 
     private async listMindmapPathsInDir(dir: string, found: Set<string>): Promise<void> {
-        let entries: string[];
+        let listed: { files: string[]; folders: string[] };
         try {
-            entries = await this.app.vault.adapter.list(dir);
+            listed = await this.app.vault.adapter.list(dir);
         } catch {
             return;
         }
-        for (const entry of entries) {
-            const fullPath = dir ? `${dir}/${entry}` : entry;
-            if (entry.endsWith(".mindmap")) {
-                found.add(fullPath);
-            } else if (!entry.includes(".")) {
-                await this.listMindmapPathsInDir(fullPath, found);
+        for (const filePath of listed.files) {
+            if (filePath.endsWith(".mindmap")) {
+                found.add(filePath);
             }
+        }
+        for (const folderPath of listed.folders) {
+            await this.listMindmapPathsInDir(folderPath, found);
         }
     }
 
     async loadSettings() {
-        const data = await this.loadData();
-        this.settings = Object.assign({}, DEFAULT_SETTINGS, data);
-        if (data && data.hotkeys) {
+        const data = (await this.loadData()) as Partial<MindMapSettings> | null;
+        this.settings = Object.assign({}, DEFAULT_SETTINGS, data ?? {});
+        if (data?.hotkeys) {
             this.settings.hotkeys = Object.assign({}, DEFAULT_SETTINGS.hotkeys, data.hotkeys);
         }
         if (this.settings.layoutMode !== "radial" && this.settings.layoutMode !== "outline") {
@@ -264,6 +284,38 @@ export default class MindMapPlugin extends Plugin {
     }
 }
 
+/**
+ * Minimal local typings for Obsidian's declarative settings API
+ * (`PluginSettingTab.getSettingDefinitions()`, added in Obsidian 1.13.0).
+ * The installed `obsidian` package typings do not yet declare this API,
+ * so we describe only the shapes this plugin actually returns.
+ */
+type SettingDefinitionControl =
+    | { type: "toggle"; key: string; defaultValue?: boolean }
+    | { type: "text"; key: string; placeholder?: string; defaultValue?: string }
+    | { type: "textarea"; key: string; placeholder?: string; rows?: number; defaultValue?: string }
+    | { type: "number"; key: string; min?: number; max?: number; step?: number; placeholder?: string; defaultValue?: number }
+    | { type: "slider"; key: string; min: number; max: number; step: number; defaultValue?: number }
+    | { type: "dropdown"; key: string; options: Record<string, string>; defaultValue?: string }
+    | { type: "folder"; key: string; includeRoot?: boolean; placeholder?: string; defaultValue?: string }
+    | { type: "color"; key: string; defaultValue?: string };
+
+interface SettingDefinitionItem {
+    name?: string;
+    desc?: string;
+    control?: SettingDefinitionControl;
+    render?: (setting: Setting) => void | (() => void);
+    action?: (index: number) => void;
+}
+
+interface SettingDefinitionGroup {
+    type: "group";
+    heading?: string;
+    items: SettingDefinitionEntry[];
+}
+
+type SettingDefinitionEntry = SettingDefinitionItem | SettingDefinitionGroup;
+
 class MindMapSettingTab extends PluginSettingTab {
     plugin: MindMapPlugin;
 
@@ -277,64 +329,9 @@ class MindMapSettingTab extends PluginSettingTab {
         containerEl.empty();
 
 
-        new Setting(containerEl)
-            .setName("Export folder")
-            .setDesc("Default folder for exported files and new notes.")
-            .addText((text) =>
-                text
-                    .setPlaceholder("Example: mind-maps/exports")
-                    .setValue(this.plugin.settings.exportFolder)
-                    .onChange((value) => {
-                        this.plugin.settings.exportFolder = value;
-                        void this.plugin.saveSettings();
-                    })
-            )
-            .addButton((btn) =>
-                btn.setButtonText("Select folder").onClick(() => {
-                    new FolderSuggestModal(this.app, (folder) => {
-                        this.plugin.settings.exportFolder = folder.path;
-                        void this.plugin.saveSettings();
-                        this.display();
-                    }).open();
-                })
-            );
-
-        new Setting(containerEl)
-            .setName("Theme")
-            .setDesc("Select a color theme for your mindmap nodes.")
-            .addDropdown((dropdown) =>
-                dropdown
-                    .addOption("default", "Default Obsidian")
-                    .addOption("vibrant", "Vibrant colors")
-                    .addOption("contrast", "High contrast")
-                    .setValue(this.plugin.settings.theme)
-                    .onChange((value) => {
-                        this.plugin.settings.theme = value;
-                        void this.plugin.saveSettings();
-                        const leaves = this.app.workspace.getLeavesOfType(VIEW_TYPE_MIND_MAP);
-                        const view = leaves.length > 0 ? leaves[0].view : null;
-                        if (view instanceof MindMapView) view.updateTheme(this.plugin.settings.theme);
-                    })
-            );
-
-        new Setting(containerEl)
-            .setName("Mind map layout")
-            .setDesc(
-                "Outline grows to the right like a list. Radial places root topics on both left and right (auto-balanced)."
-            )
-            .addDropdown((dropdown) =>
-                dropdown
-                    .addOption("outline", "Outline (list)")
-                    .addOption("radial", "Radial (balanced)")
-                    .setValue(this.plugin.settings.layoutMode ?? "outline")
-                    .onChange((value: string) => {
-                        this.plugin.settings.layoutMode = value === "radial" ? "radial" : "outline";
-                        void this.plugin.saveSettings();
-                        this.app.workspace.getLeavesOfType(VIEW_TYPE_MIND_MAP).forEach((leaf) => {
-                            if (leaf.view instanceof MindMapView) leaf.view.render();
-                        });
-                    })
-            );
+        this.buildExportFolderSetting(new Setting(containerEl));
+        this.buildThemeSetting(new Setting(containerEl));
+        this.buildLayoutModeSetting(new Setting(containerEl));
 
         new Setting(containerEl)
             .setName("Strip metadata from full note")
@@ -360,78 +357,15 @@ class MindMapSettingTab extends PluginSettingTab {
                     })
             );
 
-        new Setting(containerEl)
-            .setName("Max node text length")
-            .setDesc("The maximum number of characters to show in a node before truncating with '...'.")
-            .addSlider((slider) =>
-                slider
-                    .setLimits(5, 100, 1)
-                    .setValue(this.plugin.settings.maxNodeLength)
-                    .setDynamicTooltip()
-                    .onChange((value) => {
-                        this.plugin.settings.maxNodeLength = value;
-                        void this.plugin.saveSettings();
-                        const leaves = this.app.workspace.getLeavesOfType(VIEW_TYPE_MIND_MAP);
-                        const view = leaves.length > 0 ? leaves[0].view : null;
-                        if (view instanceof MindMapView) view.render();
-                    })
-            );
-
+        this.buildMaxNodeLengthSetting(new Setting(containerEl));
 
         new Setting(containerEl).setName("Node operations").setHeading();
         const opsSection = containerEl.createDiv();
-        const createOpsHotkey = (name: string, key: keyof MindMapSettings["hotkeys"]) => {
-            new Setting(opsSection).setName(name).addText((text) => {
-                text.setValue(this.plugin.settings.hotkeys[key]);
-                text.inputEl.placeholder = "Press keys...";
-                text.inputEl.addEventListener("keydown", (e) => {
-                    e.preventDefault();
-                    e.stopPropagation();
-                    if (e.key === "Escape" || e.key === "Backspace") {
-                        this.plugin.settings.hotkeys[key] = "";
-                        text.setValue("");
-                        void this.plugin.saveSettings();
-                        return;
-                    }
-                    if (["Control", "Shift", "Alt", "Meta"].includes(e.key)) return;
-                    const modifiers = [];
-                    if (e.ctrlKey || e.metaKey) modifiers.push("Ctrl");
-                    if (e.shiftKey) modifiers.push("Shift");
-                    if (e.altKey) modifiers.push("Alt");
-                    const mainKey = e.key === " " ? "Space" : e.key;
-                    const fullKey =
-                        (modifiers.length > 0 ? modifiers.join("+") + "+" : "") +
-                        (mainKey.length === 1 ? mainKey.toUpperCase() : mainKey);
-                    this.plugin.settings.hotkeys[key] = fullKey;
-                    text.setValue(fullKey);
-                    void this.plugin.saveSettings();
-                });
-            });
-        };
+        for (const [name, key] of MindMapSettingTab.OPS_HOTKEYS) {
+            this.buildHotkeySetting(new Setting(opsSection), name, key);
+        }
 
-        createOpsHotkey("Add child node", "addChild");
-        createOpsHotkey("Add sibling node", "addSibling");
-        createOpsHotkey("Delete node", "delete");
-        createOpsHotkey("Rename node", "rename");
-        createOpsHotkey("Search & link note", "searchNote");
-        createOpsHotkey("Create note from node", "createNote");
-        createOpsHotkey("Open linked note", "openNote");
-
-        new Setting(containerEl)
-            .setName("Node style")
-            .setDesc("Choose the visual appearance of nodes.")
-            .addDropdown(dropdown => dropdown
-                .addOption("pill", "Pill (rounded)")
-                .addOption("rect", "Rectangle (sharp)")
-                .setValue(this.plugin.settings.nodeStyle)
-                .onChange((value: "pill" | "rect") => {
-                    this.plugin.settings.nodeStyle = value;
-                    void this.plugin.saveSettings();
-                    // Refresh current view if open
-                    this.app.workspace.getLeavesOfType(VIEW_TYPE_MIND_MAP).forEach(leaf => {
-                        if (leaf.view instanceof MindMapView) leaf.view.render();
-                    });
-                }));
+        this.buildNodeStyleSetting(new Setting(containerEl));
 
         new Setting(containerEl).setName("Navigation and movement").setHeading();
         containerEl.createEl("p", { text: "Configure how you navigate and move nodes.", cls: "setting-item-description" });
@@ -442,39 +376,9 @@ class MindMapSettingTab extends PluginSettingTab {
             .setDesc("Modifier key to select multiple nodes during navigation.")
             .addText(text => text.setDisabled(true).setValue("Cmd / Ctrl (fixed)"));
 
-        const createMoveHotkey = (name: string, key: keyof MindMapSettings["hotkeys"]) => {
-            new Setting(moveSection).setName(name).addText((text) => {
-                text.setValue(this.plugin.settings.hotkeys[key]);
-                text.inputEl.placeholder = "Press keys...";
-                text.inputEl.addEventListener("keydown", (e) => {
-                    e.preventDefault();
-                    e.stopPropagation();
-                    if (e.key === "Escape" || e.key === "Backspace") {
-                        this.plugin.settings.hotkeys[key] = "";
-                        text.setValue("");
-                        void this.plugin.saveSettings();
-                        return;
-                    }
-                    if (["Control", "Shift", "Alt", "Meta"].includes(e.key)) return;
-                    const modifiers = [];
-                    if (e.ctrlKey || e.metaKey) modifiers.push("Ctrl");
-                    if (e.shiftKey) modifiers.push("Shift");
-                    if (e.altKey) modifiers.push("Alt");
-                    const mainKey = e.key === " " ? "Space" : e.key;
-                    const fullKey =
-                        (modifiers.length > 0 ? modifiers.join("+") + "+" : "") +
-                        (mainKey.length === 1 ? mainKey.toUpperCase() : mainKey);
-                    this.plugin.settings.hotkeys[key] = fullKey;
-                    text.setValue(fullKey);
-                    void this.plugin.saveSettings();
-                });
-            });
-        };
-
-        createMoveHotkey("Move node up (Shift+)", "reorderUp");
-        createMoveHotkey("Move node down (Shift+)", "reorderDown");
-        createMoveHotkey("Demote node (Shift+move right)", "demote");
-        createMoveHotkey("Fold/unfold subtree", "toggleCollapse");
+        for (const [name, key] of MindMapSettingTab.MOVE_HOTKEYS) {
+            this.buildHotkeySetting(new Setting(moveSection), name, key);
+        }
 
         new Setting(containerEl).setName("Support").setHeading();
         const supportDiv = containerEl.createDiv();
@@ -501,6 +405,226 @@ class MindMapSettingTab extends PluginSettingTab {
             text: "🏠 official blog",
             cls: "obsimap-social-link"
         });
+    }
+
+    /** Re-renders the tab: uses the declarative `update()` when Obsidian is driving
+     *  `getSettingDefinitions()` (1.13+), otherwise falls back to the imperative `display()`. */
+    private refresh(): void {
+        const self = this as PluginSettingTab & { update?: () => void };
+        if (typeof self.update === "function") {
+            self.update();
+        } else {
+            this.display();
+        }
+    }
+
+    private buildExportFolderSetting(setting: Setting): void {
+        setting
+            .setName("Export folder")
+            .setDesc("Default folder for exported files and new notes.")
+            .addText((text) =>
+                text
+                    .setPlaceholder("Example: mind-maps/exports")
+                    .setValue(this.plugin.settings.exportFolder)
+                    .onChange((value) => {
+                        this.plugin.settings.exportFolder = value;
+                        void this.plugin.saveSettings();
+                    })
+            )
+            .addButton((btn) =>
+                btn.setButtonText("Select folder").onClick(() => {
+                    new FolderSuggestModal(this.app, (folder) => {
+                        this.plugin.settings.exportFolder = folder.path;
+                        void this.plugin.saveSettings();
+                        this.refresh();
+                    }).open();
+                })
+            );
+    }
+
+    private buildThemeSetting(setting: Setting): void {
+        setting
+            .setName("Theme")
+            .setDesc("Select a color theme for your mindmap nodes.")
+            .addDropdown((dropdown) =>
+                dropdown
+                    .addOption("default", "Default Obsidian")
+                    .addOption("vibrant", "Vibrant colors")
+                    .addOption("contrast", "High contrast")
+                    .setValue(this.plugin.settings.theme)
+                    .onChange((value) => {
+                        this.plugin.settings.theme = value;
+                        void this.plugin.saveSettings();
+                        const leaves = this.app.workspace.getLeavesOfType(VIEW_TYPE_MIND_MAP);
+                        const view = leaves.length > 0 ? leaves[0].view : null;
+                        if (view instanceof MindMapView) view.updateTheme(this.plugin.settings.theme);
+                    })
+            );
+    }
+
+    private buildLayoutModeSetting(setting: Setting): void {
+        setting
+            .setName("Mind map layout")
+            .setDesc(
+                "Outline grows to the right like a list. Radial places root topics on both left and right (auto-balanced)."
+            )
+            .addDropdown((dropdown) =>
+                dropdown
+                    .addOption("outline", "Outline (list)")
+                    .addOption("radial", "Radial (balanced)")
+                    .setValue(this.plugin.settings.layoutMode ?? "outline")
+                    .onChange((value: string) => {
+                        this.plugin.settings.layoutMode = value === "radial" ? "radial" : "outline";
+                        void this.plugin.saveSettings();
+                        this.app.workspace.getLeavesOfType(VIEW_TYPE_MIND_MAP).forEach((leaf) => {
+                            if (leaf.view instanceof MindMapView) leaf.view.render();
+                        });
+                    })
+            );
+    }
+
+    private buildMaxNodeLengthSetting(setting: Setting): void {
+        setting
+            .setName("Max node text length")
+            .setDesc("The maximum number of characters to show in a node before truncating with '...'.")
+            .addSlider((slider) =>
+                slider
+                    .setLimits(5, 100, 1)
+                    .setValue(this.plugin.settings.maxNodeLength)
+                    .onChange((value) => {
+                        this.plugin.settings.maxNodeLength = value;
+                        void this.plugin.saveSettings();
+                        const leaves = this.app.workspace.getLeavesOfType(VIEW_TYPE_MIND_MAP);
+                        const view = leaves.length > 0 ? leaves[0].view : null;
+                        if (view instanceof MindMapView) view.render();
+                    })
+            );
+    }
+
+    private buildNodeStyleSetting(setting: Setting): void {
+        setting
+            .setName("Node style")
+            .setDesc("Choose the visual appearance of nodes.")
+            .addDropdown(dropdown => dropdown
+                .addOption("pill", "Pill (rounded)")
+                .addOption("rect", "Rectangle (sharp)")
+                .setValue(this.plugin.settings.nodeStyle)
+                .onChange((value: "pill" | "rect") => {
+                    this.plugin.settings.nodeStyle = value;
+                    void this.plugin.saveSettings();
+                    this.app.workspace.getLeavesOfType(VIEW_TYPE_MIND_MAP).forEach(leaf => {
+                        if (leaf.view instanceof MindMapView) leaf.view.render();
+                    });
+                }));
+    }
+
+    private buildHotkeySetting(setting: Setting, name: string, key: keyof MindMapSettings["hotkeys"]): void {
+        setting.setName(name).addText((text) => {
+            text.setValue(this.plugin.settings.hotkeys[key]);
+            text.inputEl.placeholder = "Press keys...";
+            text.inputEl.addEventListener("keydown", (e) => {
+                e.preventDefault();
+                e.stopPropagation();
+                if (e.key === "Escape" || e.key === "Backspace") {
+                    this.plugin.settings.hotkeys[key] = "";
+                    text.setValue("");
+                    void this.plugin.saveSettings();
+                    return;
+                }
+                if (["Control", "Shift", "Alt", "Meta"].includes(e.key)) return;
+                const modifiers = [];
+                if (e.ctrlKey || e.metaKey) modifiers.push("Ctrl");
+                if (e.shiftKey) modifiers.push("Shift");
+                if (e.altKey) modifiers.push("Alt");
+                const mainKey = e.key === " " ? "Space" : e.key;
+                const fullKey =
+                    (modifiers.length > 0 ? modifiers.join("+") + "+" : "") +
+                    (mainKey.length === 1 ? mainKey.toUpperCase() : mainKey);
+                this.plugin.settings.hotkeys[key] = fullKey;
+                text.setValue(fullKey);
+                void this.plugin.saveSettings();
+            });
+        });
+    }
+
+    private static readonly OPS_HOTKEYS: Array<[string, keyof MindMapSettings["hotkeys"]]> = [
+        ["Add child node", "addChild"],
+        ["Add sibling node", "addSibling"],
+        ["Delete node", "delete"],
+        ["Rename node", "rename"],
+        ["Search & link note", "searchNote"],
+        ["Create note from node", "createNote"],
+        ["Open linked note", "openNote"],
+    ];
+
+    private static readonly MOVE_HOTKEYS: Array<[string, keyof MindMapSettings["hotkeys"]]> = [
+        ["Move node up (Shift+)", "reorderUp"],
+        ["Move node down (Shift+)", "reorderDown"],
+        ["Demote node (Shift+move right)", "demote"],
+        ["Fold/unfold subtree", "toggleCollapse"],
+    ];
+
+    /**
+     * Declarative settings (Obsidian 1.13+): describes the same searchable settings as
+     * `display()` above, so they are indexed and findable in global settings search.
+     * On older Obsidian, `getSettingDefinitions()` is unused and `display()` renders as before.
+     * Settings with side effects (theme refresh, layout re-render, folder picker, hotkeys)
+     * use `render` callbacks that reuse the same builder methods as `display()`.
+     */
+    getSettingDefinitions(): SettingDefinitionEntry[] {
+        return [
+            {
+                name: "Export folder",
+                desc: "Default folder for exported files and new notes.",
+                render: (setting) => this.buildExportFolderSetting(setting),
+            },
+            {
+                name: "Theme",
+                desc: "Select a color theme for your mindmap nodes.",
+                render: (setting) => this.buildThemeSetting(setting),
+            },
+            {
+                name: "Mind map layout",
+                desc: "Outline grows to the right like a list. Radial places root topics on both left and right (auto-balanced).",
+                render: (setting) => this.buildLayoutModeSetting(setting),
+            },
+            {
+                name: "Strip metadata from full note",
+                desc: "Automatically remove YAML frontmatter/properties when exporting content.",
+                control: { type: "toggle", key: "stripMetadata" },
+            },
+            {
+                name: "Show hover preview",
+                desc: "Show the full node text when hovering over truncated nodes.",
+                control: { type: "toggle", key: "showHoverPreview" },
+            },
+            {
+                name: "Max node text length",
+                desc: "The maximum number of characters to show in a node before truncating with '...'.",
+                render: (setting) => this.buildMaxNodeLengthSetting(setting),
+            },
+            {
+                type: "group",
+                heading: "Node operations",
+                items: MindMapSettingTab.OPS_HOTKEYS.map(([name, key]) => ({
+                    name,
+                    render: (setting: Setting) => this.buildHotkeySetting(setting, name, key),
+                })),
+            },
+            {
+                name: "Node style",
+                desc: "Choose the visual appearance of nodes.",
+                render: (setting) => this.buildNodeStyleSetting(setting),
+            },
+            {
+                type: "group",
+                heading: "Navigation and movement",
+                items: MindMapSettingTab.MOVE_HOTKEYS.map(([name, key]) => ({
+                    name,
+                    render: (setting: Setting) => this.buildHotkeySetting(setting, name, key),
+                })),
+            },
+        ];
     }
 }
 
@@ -672,19 +796,20 @@ class MindMapView extends TextFileView {
     setViewData(data: string, clear: boolean): void {
         const jsonMatch = data.match(/```json\n([\s\S]*?)\n```/);
         if (jsonMatch) {
-            try {
-                this.mindMapData = JSON.parse(jsonMatch[1]);
+            const parsed = parseMindMapJson(jsonMatch[1]);
+            if (parsed) {
+                this.mindMapData = parsed;
                 if (this.mindMapData.root) {
                     this.selectedNodeId = this.mindMapData.root.id;
                     this.selectedNodeIds.clear();
                     this.selectedNodeIds.add(this.mindMapData.root.id);
                 }
-            } catch (e) {
-                console.error("Failed to parse mindmap data:", e);
+            } else {
+                console.error("Failed to parse mindmap data");
             }
         }
         this.render();
-        setTimeout(() => this.focusContainer(), 200);
+        window.setTimeout(() => this.focusContainer(), 200);
     }
 
     clear(): void {
@@ -716,7 +841,7 @@ class MindMapView extends TextFileView {
             this.isToolbarExpanded = !this.isToolbarExpanded;
             controls.classList.toggle("is-collapsed", !this.isToolbarExpanded);
             const iconEl = toggleBtn.querySelector(".lucide");
-            if (iconEl instanceof Element) iconEl.replaceWith(document.createElement("div")); // placeholder to trigger re-icon
+            if (iconEl instanceof Element) iconEl.replaceWith(createDiv()); // placeholder to trigger re-icon
             setIcon(toggleBtn, this.isToolbarExpanded ? "lucide-chevron-left" : "lucide-menu");
         });
         toggleBtn.classList.add("toolbar-toggle-btn");
@@ -737,7 +862,7 @@ class MindMapView extends TextFileView {
         // Auto-focus the container so keyboard navigation works immediately.
         // No inline title rename — Obsidian/our modal handles renaming so focus
         // never leaves the map pane unexpectedly.
-        setTimeout(() => {
+        window.setTimeout(() => {
             svgContainer.focus();
         }, 100);
 
@@ -766,7 +891,7 @@ class MindMapView extends TextFileView {
             if (targetEl && targetEl.closest(".menu")) return;
 
             if (e.key === " ") {
-                svgContainer.setCssProps({ "cursor": "grab" });
+                this.setMapCursor("grab");
             }
             if (e.key === "F2") {
                 e.preventDefault();
@@ -806,7 +931,7 @@ class MindMapView extends TextFileView {
 
         this.registerDomEvent(svgContainer, "keyup", (e) => {
             if (e.key === " ") {
-                if (!this.isDragging) svgContainer.setCssProps({ "cursor": "default" });
+                if (!this.isDragging) this.setMapCursor("default");
             }
         });
 
@@ -824,7 +949,7 @@ class MindMapView extends TextFileView {
                 this.isDragging = true;
                 this.lastMouseX = e.clientX;
                 this.lastMouseY = e.clientY;
-                svgContainer.setCssProps({ "cursor": "grabbing" });
+                this.setMapCursor("grabbing");
                 this.svg.setPointerCapture(e.pointerId);
             }
         });
@@ -844,8 +969,7 @@ class MindMapView extends TextFileView {
         this.registerDomEvent(this.svg as unknown as HTMLElement, "pointerup", (e: PointerEvent) => {
             this.isDragging = false;
             if (this.svg) {
-                const svgContainer = this.containerEl.querySelector(".mindmap-svg-container");
-                if (svgContainer instanceof HTMLElement) svgContainer.setCssProps({ "cursor": "default" });
+                this.setMapCursor("default");
                 this.svg.releasePointerCapture(e.pointerId);
             }
         });
@@ -853,20 +977,20 @@ class MindMapView extends TextFileView {
         this.registerEvent(this.app.workspace.on("active-leaf-change", (leaf) => {
             if (leaf === this.leaf) {
                 // Short delay to ensure the pane is fully visible
-                setTimeout(() => this.focusContainer(), 50);
+                window.setTimeout(() => this.focusContainer(), 50);
             }
         }));
 
         this.viewportResizeObserver = new ResizeObserver(() => {
-            if (this.viewportResizeRaf !== null) cancelAnimationFrame(this.viewportResizeRaf);
-            this.viewportResizeRaf = requestAnimationFrame(() => {
+            if (this.viewportResizeRaf !== null) window.cancelAnimationFrame(this.viewportResizeRaf);
+            this.viewportResizeRaf = window.requestAnimationFrame(() => {
                 this.viewportResizeRaf = null;
                 if (this.selectedNodeId) this.scrollSelectionIntoView();
             });
         });
         this.viewportResizeObserver.observe(svgContainer);
         this.register(() => {
-            if (this.viewportResizeRaf !== null) cancelAnimationFrame(this.viewportResizeRaf);
+            if (this.viewportResizeRaf !== null) window.cancelAnimationFrame(this.viewportResizeRaf);
             this.viewportResizeObserver?.disconnect();
             this.viewportResizeObserver = null;
         });
@@ -880,9 +1004,17 @@ class MindMapView extends TextFileView {
         setTooltip(btn, tooltip);
         this.registerDomEvent(btn, "click", () => {
             onClick();
-            requestAnimationFrame(() => this.focusContainer());
+            window.requestAnimationFrame(() => this.focusContainer());
         });
         return btn;
+    }
+
+    /** Toggles the map pane cursor via CSS classes (no static inline styles). */
+    private setMapCursor(mode: "grab" | "grabbing" | "default"): void {
+        const svgContainer = this.svgContainerEl;
+        if (!svgContainer) return;
+        svgContainer.classList.toggle("is-cursor-grab", mode === "grab");
+        svgContainer.classList.toggle("is-cursor-grabbing", mode === "grabbing");
     }
 
     updateTransform() {
@@ -1822,7 +1954,7 @@ class MindMapView extends TextFileView {
 
         menu.showAtPosition({ x, y });
         menu.onHide(() => {
-            requestAnimationFrame(() => {
+            window.requestAnimationFrame(() => {
                 if (this.pendingContextMenuRename) {
                     const target = this.pendingContextMenuRename;
                     this.pendingContextMenuRename = null;
@@ -1848,7 +1980,6 @@ class MindMapView extends TextFileView {
     private createGhostNode(node: MindMapNode, width: number) {
         this.ghostNode = document.createElementNS("http://www.w3.org/2000/svg", "g");
         this.ghostNode.classList.add("mindmap-ghost-node");
-        this.ghostNode.setCssProps({ "opacity": "0.7", "pointer-events": "none" });
 
         const rect = document.createElementNS("http://www.w3.org/2000/svg", "rect");
         rect.setAttribute("rx", "20");
@@ -1864,7 +1995,6 @@ class MindMapView extends TextFileView {
         text.setAttribute("y", "25");
         text.setAttribute("text-anchor", "middle");
         text.classList.add("mindmap-node-text");
-        text.setCssProps({ "fill": "var(--text-on-accent)" });
         text.textContent = node.text.length > 20 ? node.text.substring(0, 20) + "..." : node.text;
 
         this.ghostNode.appendChild(rect);
@@ -1996,13 +2126,12 @@ class MindMapView extends TextFileView {
     ) {
         let file: TFile | null = null;
 
-        // @ts-ignore
-        const dragManager = this.app.dragManager;
+        const dragManager = (this.app as App & { dragManager?: DragMgr }).dragManager;
         if (dragManager) {
             const context = dragManager.viewDragContext || dragManager.activeDrag;
-            if (context && context.file instanceof TFile) {
+            if (context?.file instanceof TFile) {
                 file = context.file;
-            } else if (dragManager.draggable && dragManager.draggable.file instanceof TFile) {
+            } else if (dragManager.draggable?.file instanceof TFile) {
                 file = dragManager.draggable.file;
             }
         }
@@ -2221,7 +2350,9 @@ class MindMapView extends TextFileView {
         if (this.historyStack.length === 0) return;
         const prevState = this.historyStack.pop();
         if (prevState) {
-            this.mindMapData = JSON.parse(prevState);
+            const parsed = parseMindMapJson(prevState);
+            if (!parsed) return;
+            this.mindMapData = parsed;
             this.render();
             void this.saveMindMap(true);
             new Notice("Undo");
@@ -2509,7 +2640,7 @@ class MindMapView extends TextFileView {
             hitArea.setAttribute("r", "15"); // Larger hit area
             hitArea.setAttribute("fill", "white");
             hitArea.setAttribute("fill-opacity", "0"); // Invisible but clickable
-            hitArea.setCssProps({ "cursor": "pointer" });
+            hitArea.classList.add("mindmap-node-toggle-hit");
             this.registerDomEvent(hitArea as unknown as HTMLElement, "pointerdown", (e: PointerEvent) => {
                 e.preventDefault();
                 e.stopPropagation();
@@ -2563,7 +2694,7 @@ class MindMapView extends TextFileView {
             this.selectNode(node.id, e.ctrlKey || e.metaKey || e.shiftKey);
 
             const useLongPress = e.pointerType === "touch" || e.pointerType === "pen";
-            let longPressTimer: ReturnType<typeof window.setTimeout> | null = null;
+            let longPressTimer: number | null = null;
             let cancelLongPress: (() => void) | null = null;
             if (useLongPress) {
                 longPressTimer = window.setTimeout(() => {
@@ -2677,7 +2808,6 @@ class MindMapView extends TextFileView {
         rect.setAttribute("width", nodeWidth.toString());
         rect.setAttribute("height", "40");
         rect.classList.add("mindmap-node-rect");
-        rect.setCssProps({ "pointer-events": "all" }); // Ensure events are captured
 
         if (this.selectedNodeIds.has(node.id)) {
             rect.classList.add("is-selected");
@@ -2687,7 +2817,6 @@ class MindMapView extends TextFileView {
         text.setAttribute("x", (nodeWidth / 2).toString());
         text.setAttribute("y", "25");
         text.setAttribute("text-anchor", "middle");
-        text.setCssProps({ "pointer-events": "none" });
 
         const maxLength = this.settings.maxNodeLength;
         if (node.text.length > maxLength) {
@@ -2702,16 +2831,16 @@ class MindMapView extends TextFileView {
                 if (this.currentTooltip) this.currentTooltip.remove();
 
                 this.currentTooltip = document.body.createEl("div", { cls: "mindmap-tooltip", text: node.text });
-                this.currentTooltip.setCssProps({
-                    "left": `${e.clientX + 15}px`,
-                    "top": `${e.clientY + 15}px`
+                this.currentTooltip.setCssStyles({
+                    left: `${e.clientX + 15}px`,
+                    top: `${e.clientY + 15}px`
                 });
 
                 const onMouseMove = (moveEvent: MouseEvent) => {
                     if (this.currentTooltip) {
-                        this.currentTooltip.setCssProps({
-                            "left": `${moveEvent.clientX + 15}px`,
-                            "top": `${moveEvent.clientY + 15}px`
+                        this.currentTooltip.setCssStyles({
+                            left: `${moveEvent.clientX + 15}px`,
+                            top: `${moveEvent.clientY + 15}px`
                         });
                     }
                 };
@@ -2783,27 +2912,23 @@ class MindMapView extends TextFileView {
             const nodeBounds = nodeEl.getBoundingClientRect();
             const containerBounds = container.getBoundingClientRect();
             const height = nodeBounds.height > 0 ? nodeBounds.height : MindMapView.NODE_HEIGHT * this.zoom;
-            input.setCssProps({
-                "position": "absolute",
-                "left": `${nodeBounds.left - containerBounds.left}px`,
-                "top": `${nodeBounds.top - containerBounds.top}px`,
-                "width": `${nodeBounds.width}px`,
-                "height": `${height}px`,
-                "font-size": `${Math.max(16, 14 * (height / MindMapView.NODE_HEIGHT))}px`,
-                "z-index": "20",
+            input.setCssStyles({
+                left: `${nodeBounds.left - containerBounds.left}px`,
+                top: `${nodeBounds.top - containerBounds.top}px`,
+                width: `${nodeBounds.width}px`,
+                height: `${height}px`,
+                fontSize: `${Math.max(16, 14 * (height / MindMapView.NODE_HEIGHT))}px`,
             });
             return;
         }
 
         const nodeWidth = this.getNodeWidth(node.text);
-        input.setCssProps({
-            "position": "absolute",
-            "left": `${this.panX + (node.x ?? 0) * this.zoom}px`,
-            "top": `${this.panY + (node.y ?? 0) * this.zoom}px`,
-            "width": `${nodeWidth * this.zoom}px`,
-            "height": `${MindMapView.NODE_HEIGHT * this.zoom}px`,
-            "font-size": `${Math.max(16, 14 * this.zoom)}px`,
-            "z-index": "20",
+        input.setCssStyles({
+            left: `${this.panX + (node.x ?? 0) * this.zoom}px`,
+            top: `${this.panY + (node.y ?? 0) * this.zoom}px`,
+            width: `${nodeWidth * this.zoom}px`,
+            height: `${MindMapView.NODE_HEIGHT * this.zoom}px`,
+            fontSize: `${Math.max(16, 14 * this.zoom)}px`,
         });
     }
 
@@ -2825,16 +2950,17 @@ class MindMapView extends TextFileView {
 
         this.teardownEditInput();
         this.isEditing = true;
-        const input = document.createElement("input");
-        input.type = "text";
-        input.value = node.text;
-        input.classList.add("mindmap-edit-input");
-        input.setAttribute("autocomplete", "off");
-        input.setAttribute("autocorrect", "off");
-        input.setAttribute("autocapitalize", "off");
-        input.setAttribute("spellcheck", "false");
-
-        container.appendChild(input);
+        const input = container.createEl("input", {
+            type: "text",
+            cls: "mindmap-edit-input",
+            value: node.text,
+            attr: {
+                autocomplete: "off",
+                autocorrect: "off",
+                autocapitalize: "off",
+                spellcheck: "false",
+            },
+        });
         this.editInputEl = input;
         this.ensureNodeInView(node.id);
         this.positionEditInput(input, node);
@@ -2891,7 +3017,7 @@ class MindMapView extends TextFileView {
                             }
                         } finally {
                             // Delay resetting the flag to let events clear
-                            setTimeout(() => { this.plugin.isInternalRenaming = false; }, 100);
+                            window.setTimeout(() => { this.plugin.isInternalRenaming = false; }, 100);
                         }
                     }
                 }
@@ -2900,20 +3026,20 @@ class MindMapView extends TextFileView {
             node.text = newText;
             this.render();
             void this.saveMindMap(true);
-            setTimeout(() => this.focusContainer(), 50);
+            window.setTimeout(() => this.focusContainer(), 50);
         };
 
         const cancel = () => {
             if (!this.isEditing) return;
             this.teardownEditInput();
             this.render();
-            setTimeout(() => this.focusContainer(), 50);
+            window.setTimeout(() => this.focusContainer(), 50);
         };
 
         input.addEventListener("blur", () => {
             // Ignore focus loss right after open (e.g. context menu dismiss on iPad).
             if (Date.now() - editOpenedAt < 300) {
-                requestAnimationFrame(() => {
+                window.requestAnimationFrame(() => {
                     if (this.editInputEl === input && this.isEditing) {
                         input.focus({ preventScroll: true });
                     }
@@ -3004,7 +3130,7 @@ class MindMapView extends TextFileView {
                     : `${folderPath}/${newName}.mindmap`;
                 void this.app.vault.rename(file, newPath);
             }
-            setTimeout(() => this.focusContainer(), 0);
+            window.setTimeout(() => this.focusContainer(), 0);
         }).open();
     }
 

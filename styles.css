@@ -81,7 +81,6 @@ body .tree-item-self[data-path$=".mindmap"] .tree-item-icon::before {
     /* Keep SVG paint (filters/nodes) from bleeding into adjacent Obsidian panes */
     isolation: isolate;
     contain: paint;
-    clip-path: inset(0);
 }
 
 /* Obsidian leaf wrappers can otherwise let SVG overflow into sidebars */
@@ -184,7 +183,15 @@ body .tree-item-self[data-path$=".mindmap"] .tree-item-icon::before {
     background-color: var(--background-primary);
     isolation: isolate;
     contain: paint;
-    clip-path: inset(0);
+    cursor: default;
+}
+
+.mindmap-svg-container.is-cursor-grab {
+    cursor: grab;
+}
+
+.mindmap-svg-container.is-cursor-grabbing {
+    cursor: grabbing;
 }
 
 /* Base Node & Connection */
@@ -198,6 +205,7 @@ body .tree-item-self[data-path$=".mindmap"] .tree-item-icon::before {
     stroke-width: 2;
     transition: all 0.2s ease;
     touch-action: manipulation;
+    pointer-events: all;
 }
 
 /* External Drag Over State */
@@ -242,6 +250,10 @@ body .tree-item-self[data-path$=".mindmap"] .tree-item-icon::before {
     opacity: 0.85;
 }
 
+.mindmap-ghost-node .mindmap-node-text {
+    fill: var(--text-on-accent);
+}
+
 /* Node Collapse/Expand Toggle Styles */
 .mindmap-node-toggle {
     fill: var(--background-primary);
@@ -253,6 +265,10 @@ body .tree-item-self[data-path$=".mindmap"] .tree-item-icon::before {
 .mindmap-node-toggle:hover {
     fill: var(--interactive-accent);
     stroke: var(--interactive-accent);
+}
+
+.mindmap-node-toggle-hit {
+    cursor: pointer;
 }
 
 .mindmap-node-toggle-symbol {

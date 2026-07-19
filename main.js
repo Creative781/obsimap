@@ -68,6 +68,17 @@ function collectVaultFolders(root) {
   walk(root);
   return folders;
 }
+function parseMindMapJson(json) {
+  try {
+    const parsed = JSON.parse(json);
+    if (parsed && typeof parsed === "object" && "root" in parsed) {
+      return parsed;
+    }
+    return null;
+  } catch (e) {
+    return null;
+  }
+}
 function collectMarkdownFilesInFolder(folder) {
   const files = [];
   const walk = (dir) => {
@@ -166,25 +177,25 @@ var MindMapPlugin = class extends import_obsidian.Plugin {
     this.mindmapPaths = found;
   }
   async listMindmapPathsInDir(dir, found) {
-    let entries;
+    let listed;
     try {
-      entries = await this.app.vault.adapter.list(dir);
+      listed = await this.app.vault.adapter.list(dir);
     } catch (e) {
       return;
     }
-    for (const entry of entries) {
-      const fullPath = dir ? `${dir}/${entry}` : entry;
-      if (entry.endsWith(".mindmap")) {
-        found.add(fullPath);
-      } else if (!entry.includes(".")) {
-        await this.listMindmapPathsInDir(fullPath, found);
+    for (const filePath of listed.files) {
+      if (filePath.endsWith(".mindmap")) {
+        found.add(filePath);
       }
+    }
+    for (const folderPath of listed.folders) {
+      await this.listMindmapPathsInDir(folderPath, found);
     }
   }
   async loadSettings() {
     const data = await this.loadData();
-    this.settings = Object.assign({}, DEFAULT_SETTINGS, data);
-    if (data && data.hotkeys) {
+    this.settings = Object.assign({}, DEFAULT_SETTINGS, data != null ? data : {});
+    if (data == null ? void 0 : data.hotkeys) {
       this.settings.hotkeys = Object.assign({}, DEFAULT_SETTINGS.hotkeys, data.hotkeys);
     }
     if (this.settings.layoutMode !== "radial" && this.settings.layoutMode !== "outline") {
@@ -280,7 +291,7 @@ ${JSON.stringify(emptyData, null, 2)}
     }
   }
 };
-var MindMapSettingTab = class extends import_obsidian.PluginSettingTab {
+var _MindMapSettingTab = class extends import_obsidian.PluginSettingTab {
   constructor(app, plugin) {
     super(app, plugin);
     this.plugin = plugin;
@@ -288,45 +299,9 @@ var MindMapSettingTab = class extends import_obsidian.PluginSettingTab {
   display() {
     const { containerEl } = this;
     containerEl.empty();
-    new import_obsidian.Setting(containerEl).setName("Export folder").setDesc("Default folder for exported files and new notes.").addText(
-      (text) => text.setPlaceholder("Example: mind-maps/exports").setValue(this.plugin.settings.exportFolder).onChange((value) => {
-        this.plugin.settings.exportFolder = value;
-        void this.plugin.saveSettings();
-      })
-    ).addButton(
-      (btn) => btn.setButtonText("Select folder").onClick(() => {
-        new FolderSuggestModal(this.app, (folder) => {
-          this.plugin.settings.exportFolder = folder.path;
-          void this.plugin.saveSettings();
-          this.display();
-        }).open();
-      })
-    );
-    new import_obsidian.Setting(containerEl).setName("Theme").setDesc("Select a color theme for your mindmap nodes.").addDropdown(
-      (dropdown) => dropdown.addOption("default", "Default Obsidian").addOption("vibrant", "Vibrant colors").addOption("contrast", "High contrast").setValue(this.plugin.settings.theme).onChange((value) => {
-        this.plugin.settings.theme = value;
-        void this.plugin.saveSettings();
-        const leaves = this.app.workspace.getLeavesOfType(VIEW_TYPE_MIND_MAP);
-        const view = leaves.length > 0 ? leaves[0].view : null;
-        if (view instanceof MindMapView)
-          view.updateTheme(this.plugin.settings.theme);
-      })
-    );
-    new import_obsidian.Setting(containerEl).setName("Mind map layout").setDesc(
-      "Outline grows to the right like a list. Radial places root topics on both left and right (auto-balanced)."
-    ).addDropdown(
-      (dropdown) => {
-        var _a;
-        return dropdown.addOption("outline", "Outline (list)").addOption("radial", "Radial (balanced)").setValue((_a = this.plugin.settings.layoutMode) != null ? _a : "outline").onChange((value) => {
-          this.plugin.settings.layoutMode = value === "radial" ? "radial" : "outline";
-          void this.plugin.saveSettings();
-          this.app.workspace.getLeavesOfType(VIEW_TYPE_MIND_MAP).forEach((leaf) => {
-            if (leaf.view instanceof MindMapView)
-              leaf.view.render();
-          });
-        });
-      }
-    );
+    this.buildExportFolderSetting(new import_obsidian.Setting(containerEl));
+    this.buildThemeSetting(new import_obsidian.Setting(containerEl));
+    this.buildLayoutModeSetting(new import_obsidian.Setting(containerEl));
     new import_obsidian.Setting(containerEl).setName("Strip metadata from full note").setDesc("Automatically remove YAML frontmatter/properties when exporting content.").addToggle(
       (toggle) => toggle.setValue(this.plugin.settings.stripMetadata).onChange((value) => {
         this.plugin.settings.stripMetadata = value;
@@ -339,101 +314,20 @@ var MindMapSettingTab = class extends import_obsidian.PluginSettingTab {
         void this.plugin.saveSettings();
       })
     );
-    new import_obsidian.Setting(containerEl).setName("Max node text length").setDesc("The maximum number of characters to show in a node before truncating with '...'.").addSlider(
-      (slider) => slider.setLimits(5, 100, 1).setValue(this.plugin.settings.maxNodeLength).setDynamicTooltip().onChange((value) => {
-        this.plugin.settings.maxNodeLength = value;
-        void this.plugin.saveSettings();
-        const leaves = this.app.workspace.getLeavesOfType(VIEW_TYPE_MIND_MAP);
-        const view = leaves.length > 0 ? leaves[0].view : null;
-        if (view instanceof MindMapView)
-          view.render();
-      })
-    );
+    this.buildMaxNodeLengthSetting(new import_obsidian.Setting(containerEl));
     new import_obsidian.Setting(containerEl).setName("Node operations").setHeading();
     const opsSection = containerEl.createDiv();
-    const createOpsHotkey = (name, key) => {
-      new import_obsidian.Setting(opsSection).setName(name).addText((text) => {
-        text.setValue(this.plugin.settings.hotkeys[key]);
-        text.inputEl.placeholder = "Press keys...";
-        text.inputEl.addEventListener("keydown", (e) => {
-          e.preventDefault();
-          e.stopPropagation();
-          if (e.key === "Escape" || e.key === "Backspace") {
-            this.plugin.settings.hotkeys[key] = "";
-            text.setValue("");
-            void this.plugin.saveSettings();
-            return;
-          }
-          if (["Control", "Shift", "Alt", "Meta"].includes(e.key))
-            return;
-          const modifiers = [];
-          if (e.ctrlKey || e.metaKey)
-            modifiers.push("Ctrl");
-          if (e.shiftKey)
-            modifiers.push("Shift");
-          if (e.altKey)
-            modifiers.push("Alt");
-          const mainKey = e.key === " " ? "Space" : e.key;
-          const fullKey = (modifiers.length > 0 ? modifiers.join("+") + "+" : "") + (mainKey.length === 1 ? mainKey.toUpperCase() : mainKey);
-          this.plugin.settings.hotkeys[key] = fullKey;
-          text.setValue(fullKey);
-          void this.plugin.saveSettings();
-        });
-      });
-    };
-    createOpsHotkey("Add child node", "addChild");
-    createOpsHotkey("Add sibling node", "addSibling");
-    createOpsHotkey("Delete node", "delete");
-    createOpsHotkey("Rename node", "rename");
-    createOpsHotkey("Search & link note", "searchNote");
-    createOpsHotkey("Create note from node", "createNote");
-    createOpsHotkey("Open linked note", "openNote");
-    new import_obsidian.Setting(containerEl).setName("Node style").setDesc("Choose the visual appearance of nodes.").addDropdown((dropdown) => dropdown.addOption("pill", "Pill (rounded)").addOption("rect", "Rectangle (sharp)").setValue(this.plugin.settings.nodeStyle).onChange((value) => {
-      this.plugin.settings.nodeStyle = value;
-      void this.plugin.saveSettings();
-      this.app.workspace.getLeavesOfType(VIEW_TYPE_MIND_MAP).forEach((leaf) => {
-        if (leaf.view instanceof MindMapView)
-          leaf.view.render();
-      });
-    }));
+    for (const [name, key] of _MindMapSettingTab.OPS_HOTKEYS) {
+      this.buildHotkeySetting(new import_obsidian.Setting(opsSection), name, key);
+    }
+    this.buildNodeStyleSetting(new import_obsidian.Setting(containerEl));
     new import_obsidian.Setting(containerEl).setName("Navigation and movement").setHeading();
     containerEl.createEl("p", { text: "Configure how you navigate and move nodes.", cls: "setting-item-description" });
     const moveSection = containerEl.createDiv();
     new import_obsidian.Setting(moveSection).setName("Multi-node selection").setDesc("Modifier key to select multiple nodes during navigation.").addText((text) => text.setDisabled(true).setValue("Cmd / Ctrl (fixed)"));
-    const createMoveHotkey = (name, key) => {
-      new import_obsidian.Setting(moveSection).setName(name).addText((text) => {
-        text.setValue(this.plugin.settings.hotkeys[key]);
-        text.inputEl.placeholder = "Press keys...";
-        text.inputEl.addEventListener("keydown", (e) => {
-          e.preventDefault();
-          e.stopPropagation();
-          if (e.key === "Escape" || e.key === "Backspace") {
-            this.plugin.settings.hotkeys[key] = "";
-            text.setValue("");
-            void this.plugin.saveSettings();
-            return;
-          }
-          if (["Control", "Shift", "Alt", "Meta"].includes(e.key))
-            return;
-          const modifiers = [];
-          if (e.ctrlKey || e.metaKey)
-            modifiers.push("Ctrl");
-          if (e.shiftKey)
-            modifiers.push("Shift");
-          if (e.altKey)
-            modifiers.push("Alt");
-          const mainKey = e.key === " " ? "Space" : e.key;
-          const fullKey = (modifiers.length > 0 ? modifiers.join("+") + "+" : "") + (mainKey.length === 1 ? mainKey.toUpperCase() : mainKey);
-          this.plugin.settings.hotkeys[key] = fullKey;
-          text.setValue(fullKey);
-          void this.plugin.saveSettings();
-        });
-      });
-    };
-    createMoveHotkey("Move node up (Shift+)", "reorderUp");
-    createMoveHotkey("Move node down (Shift+)", "reorderDown");
-    createMoveHotkey("Demote node (Shift+move right)", "demote");
-    createMoveHotkey("Fold/unfold subtree", "toggleCollapse");
+    for (const [name, key] of _MindMapSettingTab.MOVE_HOTKEYS) {
+      this.buildHotkeySetting(new import_obsidian.Setting(moveSection), name, key);
+    }
     new import_obsidian.Setting(containerEl).setName("Support").setHeading();
     const supportDiv = containerEl.createDiv();
     supportDiv.createEl("p", { text: "If you find this plugin helpful, please consider supporting the development!" });
@@ -456,7 +350,192 @@ var MindMapSettingTab = class extends import_obsidian.PluginSettingTab {
       cls: "obsimap-social-link"
     });
   }
+  /** Re-renders the tab: uses the declarative `update()` when Obsidian is driving
+   *  `getSettingDefinitions()` (1.13+), otherwise falls back to the imperative `display()`. */
+  refresh() {
+    const self = this;
+    if (typeof self.update === "function") {
+      self.update();
+    } else {
+      this.display();
+    }
+  }
+  buildExportFolderSetting(setting) {
+    setting.setName("Export folder").setDesc("Default folder for exported files and new notes.").addText(
+      (text) => text.setPlaceholder("Example: mind-maps/exports").setValue(this.plugin.settings.exportFolder).onChange((value) => {
+        this.plugin.settings.exportFolder = value;
+        void this.plugin.saveSettings();
+      })
+    ).addButton(
+      (btn) => btn.setButtonText("Select folder").onClick(() => {
+        new FolderSuggestModal(this.app, (folder) => {
+          this.plugin.settings.exportFolder = folder.path;
+          void this.plugin.saveSettings();
+          this.refresh();
+        }).open();
+      })
+    );
+  }
+  buildThemeSetting(setting) {
+    setting.setName("Theme").setDesc("Select a color theme for your mindmap nodes.").addDropdown(
+      (dropdown) => dropdown.addOption("default", "Default Obsidian").addOption("vibrant", "Vibrant colors").addOption("contrast", "High contrast").setValue(this.plugin.settings.theme).onChange((value) => {
+        this.plugin.settings.theme = value;
+        void this.plugin.saveSettings();
+        const leaves = this.app.workspace.getLeavesOfType(VIEW_TYPE_MIND_MAP);
+        const view = leaves.length > 0 ? leaves[0].view : null;
+        if (view instanceof MindMapView)
+          view.updateTheme(this.plugin.settings.theme);
+      })
+    );
+  }
+  buildLayoutModeSetting(setting) {
+    setting.setName("Mind map layout").setDesc(
+      "Outline grows to the right like a list. Radial places root topics on both left and right (auto-balanced)."
+    ).addDropdown(
+      (dropdown) => {
+        var _a;
+        return dropdown.addOption("outline", "Outline (list)").addOption("radial", "Radial (balanced)").setValue((_a = this.plugin.settings.layoutMode) != null ? _a : "outline").onChange((value) => {
+          this.plugin.settings.layoutMode = value === "radial" ? "radial" : "outline";
+          void this.plugin.saveSettings();
+          this.app.workspace.getLeavesOfType(VIEW_TYPE_MIND_MAP).forEach((leaf) => {
+            if (leaf.view instanceof MindMapView)
+              leaf.view.render();
+          });
+        });
+      }
+    );
+  }
+  buildMaxNodeLengthSetting(setting) {
+    setting.setName("Max node text length").setDesc("The maximum number of characters to show in a node before truncating with '...'.").addSlider(
+      (slider) => slider.setLimits(5, 100, 1).setValue(this.plugin.settings.maxNodeLength).onChange((value) => {
+        this.plugin.settings.maxNodeLength = value;
+        void this.plugin.saveSettings();
+        const leaves = this.app.workspace.getLeavesOfType(VIEW_TYPE_MIND_MAP);
+        const view = leaves.length > 0 ? leaves[0].view : null;
+        if (view instanceof MindMapView)
+          view.render();
+      })
+    );
+  }
+  buildNodeStyleSetting(setting) {
+    setting.setName("Node style").setDesc("Choose the visual appearance of nodes.").addDropdown((dropdown) => dropdown.addOption("pill", "Pill (rounded)").addOption("rect", "Rectangle (sharp)").setValue(this.plugin.settings.nodeStyle).onChange((value) => {
+      this.plugin.settings.nodeStyle = value;
+      void this.plugin.saveSettings();
+      this.app.workspace.getLeavesOfType(VIEW_TYPE_MIND_MAP).forEach((leaf) => {
+        if (leaf.view instanceof MindMapView)
+          leaf.view.render();
+      });
+    }));
+  }
+  buildHotkeySetting(setting, name, key) {
+    setting.setName(name).addText((text) => {
+      text.setValue(this.plugin.settings.hotkeys[key]);
+      text.inputEl.placeholder = "Press keys...";
+      text.inputEl.addEventListener("keydown", (e) => {
+        e.preventDefault();
+        e.stopPropagation();
+        if (e.key === "Escape" || e.key === "Backspace") {
+          this.plugin.settings.hotkeys[key] = "";
+          text.setValue("");
+          void this.plugin.saveSettings();
+          return;
+        }
+        if (["Control", "Shift", "Alt", "Meta"].includes(e.key))
+          return;
+        const modifiers = [];
+        if (e.ctrlKey || e.metaKey)
+          modifiers.push("Ctrl");
+        if (e.shiftKey)
+          modifiers.push("Shift");
+        if (e.altKey)
+          modifiers.push("Alt");
+        const mainKey = e.key === " " ? "Space" : e.key;
+        const fullKey = (modifiers.length > 0 ? modifiers.join("+") + "+" : "") + (mainKey.length === 1 ? mainKey.toUpperCase() : mainKey);
+        this.plugin.settings.hotkeys[key] = fullKey;
+        text.setValue(fullKey);
+        void this.plugin.saveSettings();
+      });
+    });
+  }
+  /**
+   * Declarative settings (Obsidian 1.13+): describes the same searchable settings as
+   * `display()` above, so they are indexed and findable in global settings search.
+   * On older Obsidian, `getSettingDefinitions()` is unused and `display()` renders as before.
+   * Settings with side effects (theme refresh, layout re-render, folder picker, hotkeys)
+   * use `render` callbacks that reuse the same builder methods as `display()`.
+   */
+  getSettingDefinitions() {
+    return [
+      {
+        name: "Export folder",
+        desc: "Default folder for exported files and new notes.",
+        render: (setting) => this.buildExportFolderSetting(setting)
+      },
+      {
+        name: "Theme",
+        desc: "Select a color theme for your mindmap nodes.",
+        render: (setting) => this.buildThemeSetting(setting)
+      },
+      {
+        name: "Mind map layout",
+        desc: "Outline grows to the right like a list. Radial places root topics on both left and right (auto-balanced).",
+        render: (setting) => this.buildLayoutModeSetting(setting)
+      },
+      {
+        name: "Strip metadata from full note",
+        desc: "Automatically remove YAML frontmatter/properties when exporting content.",
+        control: { type: "toggle", key: "stripMetadata" }
+      },
+      {
+        name: "Show hover preview",
+        desc: "Show the full node text when hovering over truncated nodes.",
+        control: { type: "toggle", key: "showHoverPreview" }
+      },
+      {
+        name: "Max node text length",
+        desc: "The maximum number of characters to show in a node before truncating with '...'.",
+        render: (setting) => this.buildMaxNodeLengthSetting(setting)
+      },
+      {
+        type: "group",
+        heading: "Node operations",
+        items: _MindMapSettingTab.OPS_HOTKEYS.map(([name, key]) => ({
+          name,
+          render: (setting) => this.buildHotkeySetting(setting, name, key)
+        }))
+      },
+      {
+        name: "Node style",
+        desc: "Choose the visual appearance of nodes.",
+        render: (setting) => this.buildNodeStyleSetting(setting)
+      },
+      {
+        type: "group",
+        heading: "Navigation and movement",
+        items: _MindMapSettingTab.MOVE_HOTKEYS.map(([name, key]) => ({
+          name,
+          render: (setting) => this.buildHotkeySetting(setting, name, key)
+        }))
+      }
+    ];
+  }
 };
+var MindMapSettingTab = _MindMapSettingTab;
+MindMapSettingTab.OPS_HOTKEYS = [
+  ["Add child node", "addChild"],
+  ["Add sibling node", "addSibling"],
+  ["Delete node", "delete"],
+  ["Rename node", "rename"],
+  ["Search & link note", "searchNote"],
+  ["Create note from node", "createNote"],
+  ["Open linked note", "openNote"]
+];
+MindMapSettingTab.MOVE_HOTKEYS = [
+  ["Move node up (Shift+)", "reorderUp"],
+  ["Move node down (Shift+)", "reorderDown"],
+  ["Demote node (Shift+move right)", "demote"],
+  ["Fold/unfold subtree", "toggleCollapse"]
+];
 var FolderSuggestModal = class extends import_obsidian.FuzzySuggestModal {
   constructor(app, onSelect) {
     super(app);
@@ -588,19 +667,20 @@ ${jsonData}
   setViewData(data, clear) {
     const jsonMatch = data.match(/```json\n([\s\S]*?)\n```/);
     if (jsonMatch) {
-      try {
-        this.mindMapData = JSON.parse(jsonMatch[1]);
+      const parsed = parseMindMapJson(jsonMatch[1]);
+      if (parsed) {
+        this.mindMapData = parsed;
         if (this.mindMapData.root) {
           this.selectedNodeId = this.mindMapData.root.id;
           this.selectedNodeIds.clear();
           this.selectedNodeIds.add(this.mindMapData.root.id);
         }
-      } catch (e) {
-        console.error("Failed to parse mindmap data:", e);
+      } else {
+        console.error("Failed to parse mindmap data");
       }
     }
     this.render();
-    setTimeout(() => this.focusContainer(), 200);
+    window.setTimeout(() => this.focusContainer(), 200);
   }
   clear() {
     this.mindMapData = {
@@ -628,7 +708,7 @@ ${jsonData}
       controls.classList.toggle("is-collapsed", !this.isToolbarExpanded);
       const iconEl = toggleBtn.querySelector(".lucide");
       if (iconEl instanceof Element)
-        iconEl.replaceWith(document.createElement("div"));
+        iconEl.replaceWith(createDiv());
       (0, import_obsidian.setIcon)(toggleBtn, this.isToolbarExpanded ? "lucide-chevron-left" : "lucide-menu");
     });
     toggleBtn.classList.add("toolbar-toggle-btn");
@@ -643,7 +723,7 @@ ${jsonData}
     this.svg.setAttribute("overflow", "hidden");
     this.svg.classList.add("mindmap-svg");
     svgContainer.appendChild(this.svg);
-    setTimeout(() => {
+    window.setTimeout(() => {
       svgContainer.focus();
     }, 100);
     this.g = document.createElementNS("http://www.w3.org/2000/svg", "g");
@@ -672,7 +752,7 @@ ${jsonData}
       if (targetEl && targetEl.closest(".menu"))
         return;
       if (e.key === " ") {
-        svgContainer.setCssProps({ "cursor": "grab" });
+        this.setMapCursor("grab");
       }
       if (e.key === "F2") {
         e.preventDefault();
@@ -712,7 +792,7 @@ ${jsonData}
     this.registerDomEvent(svgContainer, "keyup", (e) => {
       if (e.key === " ") {
         if (!this.isDragging)
-          svgContainer.setCssProps({ "cursor": "default" });
+          this.setMapCursor("default");
       }
     });
     this.registerDomEvent(this.svg, "wheel", (e) => {
@@ -728,7 +808,7 @@ ${jsonData}
         this.isDragging = true;
         this.lastMouseX = e.clientX;
         this.lastMouseY = e.clientY;
-        svgContainer.setCssProps({ "cursor": "grabbing" });
+        this.setMapCursor("grabbing");
         this.svg.setPointerCapture(e.pointerId);
       }
     });
@@ -746,21 +826,19 @@ ${jsonData}
     this.registerDomEvent(this.svg, "pointerup", (e) => {
       this.isDragging = false;
       if (this.svg) {
-        const svgContainer2 = this.containerEl.querySelector(".mindmap-svg-container");
-        if (svgContainer2 instanceof HTMLElement)
-          svgContainer2.setCssProps({ "cursor": "default" });
+        this.setMapCursor("default");
         this.svg.releasePointerCapture(e.pointerId);
       }
     });
     this.registerEvent(this.app.workspace.on("active-leaf-change", (leaf) => {
       if (leaf === this.leaf) {
-        setTimeout(() => this.focusContainer(), 50);
+        window.setTimeout(() => this.focusContainer(), 50);
       }
     }));
     this.viewportResizeObserver = new ResizeObserver(() => {
       if (this.viewportResizeRaf !== null)
-        cancelAnimationFrame(this.viewportResizeRaf);
-      this.viewportResizeRaf = requestAnimationFrame(() => {
+        window.cancelAnimationFrame(this.viewportResizeRaf);
+      this.viewportResizeRaf = window.requestAnimationFrame(() => {
         this.viewportResizeRaf = null;
         if (this.selectedNodeId)
           this.scrollSelectionIntoView();
@@ -770,7 +848,7 @@ ${jsonData}
     this.register(() => {
       var _a;
       if (this.viewportResizeRaf !== null)
-        cancelAnimationFrame(this.viewportResizeRaf);
+        window.cancelAnimationFrame(this.viewportResizeRaf);
       (_a = this.viewportResizeObserver) == null ? void 0 : _a.disconnect();
       this.viewportResizeObserver = null;
     });
@@ -782,9 +860,17 @@ ${jsonData}
     (0, import_obsidian.setTooltip)(btn, tooltip);
     this.registerDomEvent(btn, "click", () => {
       onClick();
-      requestAnimationFrame(() => this.focusContainer());
+      window.requestAnimationFrame(() => this.focusContainer());
     });
     return btn;
+  }
+  /** Toggles the map pane cursor via CSS classes (no static inline styles). */
+  setMapCursor(mode) {
+    const svgContainer = this.svgContainerEl;
+    if (!svgContainer)
+      return;
+    svgContainer.classList.toggle("is-cursor-grab", mode === "grab");
+    svgContainer.classList.toggle("is-cursor-grabbing", mode === "grabbing");
   }
   updateTransform() {
     this.g.setAttribute("transform", `translate(${this.panX}, ${this.panY}) scale(${this.zoom})`);
@@ -1654,7 +1740,7 @@ ${jsonData}
     });
     menu.showAtPosition({ x, y });
     menu.onHide(() => {
-      requestAnimationFrame(() => {
+      window.requestAnimationFrame(() => {
         if (this.pendingContextMenuRename) {
           const target = this.pendingContextMenuRename;
           this.pendingContextMenuRename = null;
@@ -1678,7 +1764,6 @@ ${jsonData}
   createGhostNode(node, width) {
     this.ghostNode = document.createElementNS("http://www.w3.org/2000/svg", "g");
     this.ghostNode.classList.add("mindmap-ghost-node");
-    this.ghostNode.setCssProps({ "opacity": "0.7", "pointer-events": "none" });
     const rect = document.createElementNS("http://www.w3.org/2000/svg", "rect");
     rect.setAttribute("rx", "20");
     rect.setAttribute("ry", "20");
@@ -1692,7 +1777,6 @@ ${jsonData}
     text.setAttribute("y", "25");
     text.setAttribute("text-anchor", "middle");
     text.classList.add("mindmap-node-text");
-    text.setCssProps({ "fill": "var(--text-on-accent)" });
     text.textContent = node.text.length > 20 ? node.text.substring(0, 20) + "..." : node.text;
     this.ghostNode.appendChild(rect);
     this.ghostNode.appendChild(text);
@@ -1800,14 +1884,14 @@ ${jsonData}
     return best ? { node: best.node, mode: best.mode } : null;
   }
   handleExternalDrop(e, node, dropMode) {
-    var _a, _b;
+    var _a, _b, _c;
     let file = null;
     const dragManager = this.app.dragManager;
     if (dragManager) {
       const context = dragManager.viewDragContext || dragManager.activeDrag;
-      if (context && context.file instanceof import_obsidian.TFile) {
+      if ((context == null ? void 0 : context.file) instanceof import_obsidian.TFile) {
         file = context.file;
-      } else if (dragManager.draggable && dragManager.draggable.file instanceof import_obsidian.TFile) {
+      } else if (((_a = dragManager.draggable) == null ? void 0 : _a.file) instanceof import_obsidian.TFile) {
         file = dragManager.draggable.file;
       }
     }
@@ -1815,7 +1899,7 @@ ${jsonData}
       const textData = e.dataTransfer.getData("text/plain");
       if (textData) {
         let linkPath = textData.replace(/^\[\[/, "").replace(/\]\]$/, "").replace(/^\[.*\]\((.*)\)$/, "$1").split("|")[0].split("#")[0].trim();
-        const abstractFile = this.app.metadataCache.getFirstLinkpathDest(linkPath, ((_a = this.file) == null ? void 0 : _a.path) || "");
+        const abstractFile = this.app.metadataCache.getFirstLinkpathDest(linkPath, ((_b = this.file) == null ? void 0 : _b.path) || "");
         if (abstractFile instanceof import_obsidian.TFile) {
           file = abstractFile;
         } else {
@@ -1829,7 +1913,7 @@ ${jsonData}
     if (file) {
       this.insertDroppedText(node, `[[${file.basename}]]`, dropMode);
     } else {
-      const textData = (_b = e.dataTransfer) == null ? void 0 : _b.getData("text/plain");
+      const textData = (_c = e.dataTransfer) == null ? void 0 : _c.getData("text/plain");
       if (textData && textData.length < 200) {
         this.insertDroppedText(node, textData, dropMode);
       }
@@ -2009,7 +2093,10 @@ ${jsonData}
       return;
     const prevState = this.historyStack.pop();
     if (prevState) {
-      this.mindMapData = JSON.parse(prevState);
+      const parsed = parseMindMapJson(prevState);
+      if (!parsed)
+        return;
+      this.mindMapData = parsed;
       this.render();
       void this.saveMindMap(true);
       new import_obsidian.Notice("Undo");
@@ -2268,7 +2355,7 @@ ${jsonData}
       hitArea.setAttribute("r", "15");
       hitArea.setAttribute("fill", "white");
       hitArea.setAttribute("fill-opacity", "0");
-      hitArea.setCssProps({ "cursor": "pointer" });
+      hitArea.classList.add("mindmap-node-toggle-hit");
       this.registerDomEvent(hitArea, "pointerdown", (e) => {
         e.preventDefault();
         e.stopPropagation();
@@ -2405,7 +2492,6 @@ ${jsonData}
     rect.setAttribute("width", nodeWidth.toString());
     rect.setAttribute("height", "40");
     rect.classList.add("mindmap-node-rect");
-    rect.setCssProps({ "pointer-events": "all" });
     if (this.selectedNodeIds.has(node.id)) {
       rect.classList.add("is-selected");
     }
@@ -2413,7 +2499,6 @@ ${jsonData}
     text.setAttribute("x", (nodeWidth / 2).toString());
     text.setAttribute("y", "25");
     text.setAttribute("text-anchor", "middle");
-    text.setCssProps({ "pointer-events": "none" });
     const maxLength = this.settings.maxNodeLength;
     if (node.text.length > maxLength) {
       text.textContent = node.text.substring(0, maxLength) + "...";
@@ -2426,15 +2511,15 @@ ${jsonData}
         if (this.currentTooltip)
           this.currentTooltip.remove();
         this.currentTooltip = document.body.createEl("div", { cls: "mindmap-tooltip", text: node.text });
-        this.currentTooltip.setCssProps({
-          "left": `${e.clientX + 15}px`,
-          "top": `${e.clientY + 15}px`
+        this.currentTooltip.setCssStyles({
+          left: `${e.clientX + 15}px`,
+          top: `${e.clientY + 15}px`
         });
         const onMouseMove = (moveEvent) => {
           if (this.currentTooltip) {
-            this.currentTooltip.setCssProps({
-              "left": `${moveEvent.clientX + 15}px`,
-              "top": `${moveEvent.clientY + 15}px`
+            this.currentTooltip.setCssStyles({
+              left: `${moveEvent.clientX + 15}px`,
+              top: `${moveEvent.clientY + 15}px`
             });
           }
         };
@@ -2493,26 +2578,22 @@ ${jsonData}
       const nodeBounds = nodeEl.getBoundingClientRect();
       const containerBounds = container.getBoundingClientRect();
       const height = nodeBounds.height > 0 ? nodeBounds.height : _MindMapView.NODE_HEIGHT * this.zoom;
-      input.setCssProps({
-        "position": "absolute",
-        "left": `${nodeBounds.left - containerBounds.left}px`,
-        "top": `${nodeBounds.top - containerBounds.top}px`,
-        "width": `${nodeBounds.width}px`,
-        "height": `${height}px`,
-        "font-size": `${Math.max(16, 14 * (height / _MindMapView.NODE_HEIGHT))}px`,
-        "z-index": "20"
+      input.setCssStyles({
+        left: `${nodeBounds.left - containerBounds.left}px`,
+        top: `${nodeBounds.top - containerBounds.top}px`,
+        width: `${nodeBounds.width}px`,
+        height: `${height}px`,
+        fontSize: `${Math.max(16, 14 * (height / _MindMapView.NODE_HEIGHT))}px`
       });
       return;
     }
     const nodeWidth = this.getNodeWidth(node.text);
-    input.setCssProps({
-      "position": "absolute",
-      "left": `${this.panX + ((_b = node.x) != null ? _b : 0) * this.zoom}px`,
-      "top": `${this.panY + ((_c = node.y) != null ? _c : 0) * this.zoom}px`,
-      "width": `${nodeWidth * this.zoom}px`,
-      "height": `${_MindMapView.NODE_HEIGHT * this.zoom}px`,
-      "font-size": `${Math.max(16, 14 * this.zoom)}px`,
-      "z-index": "20"
+    input.setCssStyles({
+      left: `${this.panX + ((_b = node.x) != null ? _b : 0) * this.zoom}px`,
+      top: `${this.panY + ((_c = node.y) != null ? _c : 0) * this.zoom}px`,
+      width: `${nodeWidth * this.zoom}px`,
+      height: `${_MindMapView.NODE_HEIGHT * this.zoom}px`,
+      fontSize: `${Math.max(16, 14 * this.zoom)}px`
     });
   }
   teardownEditInput() {
@@ -2534,15 +2615,17 @@ ${jsonData}
       return;
     this.teardownEditInput();
     this.isEditing = true;
-    const input = document.createElement("input");
-    input.type = "text";
-    input.value = node.text;
-    input.classList.add("mindmap-edit-input");
-    input.setAttribute("autocomplete", "off");
-    input.setAttribute("autocorrect", "off");
-    input.setAttribute("autocapitalize", "off");
-    input.setAttribute("spellcheck", "false");
-    container.appendChild(input);
+    const input = container.createEl("input", {
+      type: "text",
+      cls: "mindmap-edit-input",
+      value: node.text,
+      attr: {
+        autocomplete: "off",
+        autocorrect: "off",
+        autocapitalize: "off",
+        spellcheck: "false"
+      }
+    });
     this.editInputEl = input;
     this.ensureNodeInView(node.id);
     this.positionEditInput(input, node);
@@ -2590,7 +2673,7 @@ ${jsonData}
                 new import_obsidian.Notice(`Failed to rename linked note: ${e.message}`);
               }
             } finally {
-              setTimeout(() => {
+              window.setTimeout(() => {
                 this.plugin.isInternalRenaming = false;
               }, 100);
             }
@@ -2600,18 +2683,18 @@ ${jsonData}
       node.text = newText;
       this.render();
       void this.saveMindMap(true);
-      setTimeout(() => this.focusContainer(), 50);
+      window.setTimeout(() => this.focusContainer(), 50);
     };
     const cancel = () => {
       if (!this.isEditing)
         return;
       this.teardownEditInput();
       this.render();
-      setTimeout(() => this.focusContainer(), 50);
+      window.setTimeout(() => this.focusContainer(), 50);
     };
     input.addEventListener("blur", () => {
       if (Date.now() - editOpenedAt < 300) {
-        requestAnimationFrame(() => {
+        window.requestAnimationFrame(() => {
           if (this.editInputEl === input && this.isEditing) {
             input.focus({ preventScroll: true });
           }
@@ -2699,7 +2782,7 @@ ${jsonData}
         const newPath = !folderPath || folderPath === "/" ? `${newName}.mindmap` : `${folderPath}/${newName}.mindmap`;
         void this.app.vault.rename(file, newPath);
       }
-      setTimeout(() => this.focusContainer(), 0);
+      window.setTimeout(() => this.focusContainer(), 0);
     }).open();
   }
   async openLinkedNote() {

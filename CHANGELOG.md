@@ -5,6 +5,14 @@ All notable changes to this project are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.1.2] - 2026-07-19
+
+### Fixed
+
+- Satisfy Obsidian community review: move static styles to CSS classes, use `setCssStyles` only for dynamic layout, prefer `window.setTimeout` / `window.requestAnimationFrame`, type-safe settings load and drag handling.
+- Add declarative `getSettingDefinitions()` for Obsidian 1.13+ settings search (keep `display()` for older versions).
+- Drop `clip-path` / `setDynamicTooltip` usages flagged by the review linter.
+
 ## [1.1.1] - 2026-07-18
 
 ### Fixed
