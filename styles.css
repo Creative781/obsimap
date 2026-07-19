@@ -76,7 +76,7 @@ body .tree-item-self[data-path$=".mindmap"] .tree-item-icon::before {
     flex-direction: column;
     height: 100%;
     width: 100%;
-    overflow: hidden !important;
+    overflow: hidden;
     background-color: var(--background-primary);
     /* Keep SVG paint from bleeding into adjacent Obsidian panes (esp. while panning) */
     isolation: isolate;
@@ -89,7 +89,7 @@ body .tree-item-self[data-path$=".mindmap"] .tree-item-icon::before {
 /* Obsidian leaf wrappers: force a hard paint boundary around the map view */
 .workspace-leaf-content[data-type="obsimap-view"],
 .workspace-leaf-content[data-type="obsimap-view"] .view-content {
-    overflow: hidden !important;
+    overflow: hidden;
     isolation: isolate;
     contain: paint;
     position: relative;
@@ -177,7 +177,7 @@ body .tree-item-self[data-path$=".mindmap"] .tree-item-icon::before {
     width: 100%;
     height: 100%;
     cursor: default;
-    overflow: hidden !important;
+    overflow: hidden;
     display: block;
     position: relative;
     z-index: 0;
@@ -187,7 +187,7 @@ body .tree-item-self[data-path$=".mindmap"] .tree-item-icon::before {
 /* Background */
 .mindmap-svg-container {
     flex-grow: 1;
-    overflow: hidden !important;
+    overflow: hidden;
     position: relative;
     outline: none;
     background-color: var(--background-primary);

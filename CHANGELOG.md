@@ -5,6 +5,13 @@ All notable changes to this project are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.1.4] - 2026-07-19
+
+### Fixed
+
+- Stop calling `PluginSettingTab.update()` (Obsidian 1.13+ only) while `minAppVersion` remains `1.4.14`, which caused the `no-unsupported-api` review failure.
+- Tighten error typing for linked-note rename failures; drop CSS `!important` from map clipping styles.
+
 ## [1.1.3] - 2026-07-19
 
 ### Fixed

@@ -406,15 +406,9 @@ class MindMapSettingTab extends PluginSettingTab {
         });
     }
 
-    /** Re-renders the tab: uses the declarative `update()` when Obsidian is driving
-     *  `getSettingDefinitions()` (1.13+), otherwise falls back to the imperative `display()`. */
+    /** Re-renders the settings tab (compatible with minAppVersion below 1.13). */
     private refresh(): void {
-        const self = this as PluginSettingTab & { update?: () => void };
-        if (typeof self.update === "function") {
-            self.update();
-        } else {
-            this.display();
-        }
+        this.display();
     }
 
     private buildExportFolderSetting(setting: Setting): void {
@@ -2157,7 +2151,8 @@ class MindMapView extends TextFileView {
         };
 
         visit(this.mindMapData.root);
-        return best ? { node: best.node, mode: best.mode } : null;
+        if (!best) return null;
+        return { node: best.node, mode: best.mode };
     }
 
     private handleExternalDrop(
@@ -3052,9 +3047,10 @@ class MindMapView extends TextFileView {
                                     await this.app.vault.rename(file, newPath);
                                 }
                             }
-                        } catch (e) {
-                            if (!e.message.includes("already exists")) {
-                                new Notice(`Failed to rename linked note: ${e.message}`);
+                        } catch (e: unknown) {
+                            const message = e instanceof Error ? e.message : String(e);
+                            if (!message.includes("already exists")) {
+                                new Notice(`Failed to rename linked note: ${message}`);
                             }
                         } finally {
                             // Delay resetting the flag to let events clear

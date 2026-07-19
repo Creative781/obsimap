@@ -350,15 +350,9 @@ var _MindMapSettingTab = class extends import_obsidian.PluginSettingTab {
       cls: "obsimap-social-link"
     });
   }
-  /** Re-renders the tab: uses the declarative `update()` when Obsidian is driving
-   *  `getSettingDefinitions()` (1.13+), otherwise falls back to the imperative `display()`. */
+  /** Re-renders the settings tab (compatible with minAppVersion below 1.13). */
   refresh() {
-    const self = this;
-    if (typeof self.update === "function") {
-      self.update();
-    } else {
-      this.display();
-    }
+    this.display();
   }
   buildExportFolderSetting(setting) {
     setting.setName("Export folder").setDesc("Default folder for exported files and new notes.").addText(
@@ -1912,7 +1906,9 @@ ${jsonData}
       }
     };
     visit(this.mindMapData.root);
-    return best ? { node: best.node, mode: best.mode } : null;
+    if (!best)
+      return null;
+    return { node: best.node, mode: best.mode };
   }
   handleExternalDrop(e, node, dropMode) {
     var _a, _b, _c;
@@ -2700,8 +2696,9 @@ ${jsonData}
                 }
               }
             } catch (e) {
-              if (!e.message.includes("already exists")) {
-                new import_obsidian.Notice(`Failed to rename linked note: ${e.message}`);
+              const message = e instanceof Error ? e.message : String(e);
+              if (!message.includes("already exists")) {
+                new import_obsidian.Notice(`Failed to rename linked note: ${message}`);
               }
             } finally {
               window.setTimeout(() => {
